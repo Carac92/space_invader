@@ -9,7 +9,7 @@ SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 PLAYER_SPEED = 5
 BULLET_SPEED = 5
-ENEMY_SPEED = 1
+ENEMY_SPEED = 3
 ENEMY_DROP_SPEED = 30
 NUM_ENEMY_ROWS = 2
 NUM_ENEMY_COLS = 10
@@ -33,14 +33,13 @@ ENEMY_BULLET_DETECTION_RANGE = 150
 # Récompenses
 HIT_ASTEROID_REWARD = -15
 HIT_NOTHING_REWARD = -10
-ACTION_REWARD= -1
+ACTION_REWARD = -5
 HIT_ENEMIES_REWARD = 100
 LOOSE_REWARD = -10000
 WIN_REWARD = 5000
 DODGE_REWARD = 0
 POSITION_REWARD = 0
 DODGE_ASTEROID_REWARD = 0
-
 
 
 class Bullet(arcade.Sprite):
@@ -112,6 +111,7 @@ class SpaceInvadersGame(arcade.Window):
         self.score = 0
         self.reset_required = False
         self.reward = 0
+        self.total_reward = 0  # Variable pour accumuler les récompenses
         self.last_action = 0
         self.state = None
 
@@ -148,9 +148,11 @@ class SpaceInvadersGame(arcade.Window):
 
         self.score = 0
         self.reset_required = False
+        self.total_reward = 0  # Réinitialisation du total des récompenses
 
     def game_over(self, reason):
         print(f"Game Over: {reason}")
+        print(f"Total Reward for Episode {self.episode}: {self.total_reward}")  # Affichage du total des récompenses
         self.reset_required = True
         self.episode += 1
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
@@ -253,12 +255,13 @@ class SpaceInvadersGame(arcade.Window):
 
         self.enemy_shoot()
 
+        self.reward = 0  # Réinitialisation de la récompense
 
         # Pénalité pour tirer
         if self.last_action == 2:
-            self.reward += ACTION_REWARD  # Pénalité plus élevée pour tirer
+            self.reward += ACTION_REWARD  # Pénalité pour tirer
             if self.player.ammo <= 0 or not self.detect_enemies():
-                self.reward += HIT_NOTHING_REWARD # Pénalité supplémentaire pour tir inutile
+                self.reward += HIT_NOTHING_REWARD  # Pénalité supplémentaire pour tir inutile
 
         # Collision des missiles du joueur avec les ennemis
         hit_enemy = False
@@ -283,7 +286,7 @@ class SpaceInvadersGame(arcade.Window):
                 bullet.remove_from_sprite_lists()
                 for asteroid in asteroid_hit_list:
                     asteroid.take_damage()
-                self.reward += HIT_ASTEROID_REWARD  # Pénalité plus élevée pour toucher un astéroïde
+                self.reward += HIT_ASTEROID_REWARD  # Pénalité pour toucher un astéroïde
 
         # Collision des missiles ennemis avec les astéroïdes
         for bullet in self.enemy_bullet_list:
@@ -297,6 +300,7 @@ class SpaceInvadersGame(arcade.Window):
         for bullet in self.enemy_bullet_list:
             if arcade.check_for_collision(bullet, self.player):
                 self.reward += LOOSE_REWARD
+                self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
                 self.game_over("Player hit by enemy bullet")
                 return  # Terminer la mise à jour pour éviter des erreurs
 
@@ -317,18 +321,22 @@ class SpaceInvadersGame(arcade.Window):
         # Vérifier la fin de l'épisode si tous les ennemis sont vaincus
         if len(self.enemy_list) == 0:
             self.reward += WIN_REWARD  # Grande récompense pour gagner le jeu
+            self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
             self.game_over("All enemies defeated")
             return  # Terminer la mise à jour
 
         # Augmenter la pénalité pour être à court de munitions
         if self.player.ammo <= 0 and len(self.enemy_list) > 0:
             self.reward += LOOSE_REWARD  # Pénalité plus sévère
+            self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
             self.game_over("Out of ammunition")
             return
 
         next_state = self.get_state()
         self.update_q_table(next_state)
         self.state = next_state
+
+        self.total_reward += self.reward  # Mise à jour du total des récompenses
 
     def on_draw(self):
         arcade.start_render()
@@ -340,6 +348,7 @@ class SpaceInvadersGame(arcade.Window):
         arcade.draw_text(f"Score: {self.score}", 10, 20, arcade.color.WHITE, 14)
         arcade.draw_text(f"Ammo: {self.player.ammo}", 10, 50, arcade.color.WHITE, 14)
         arcade.draw_text(f"Episode: {self.episode}", 10, 80, arcade.color.WHITE, 14)
+        arcade.draw_text(f"Total Reward: {self.total_reward}", 10, 110, arcade.color.WHITE, 14)  # Affichage du total des récompenses
 
     def enemy_shoot(self):
         for enemy in self.enemy_list:
