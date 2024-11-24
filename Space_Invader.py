@@ -34,7 +34,8 @@ ENEMY_BULLET_DETECTION_RANGE = 150
 HIT_ASTEROID_REWARD = -15
 HIT_NOTHING_REWARD = -10
 ACTION_REWARD = -5
-HIT_ENEMIES_REWARD = 100
+DO_NOTHING_REWARD = 0
+HIT_ENEMIES_REWARD = 50
 LOOSE_REWARD = -10000
 WIN_REWARD = 5000
 DODGE_REWARD = 0
@@ -278,6 +279,9 @@ class SpaceInvadersGame(arcade.Window):
         # Pénalité supplémentaire si le tir n'a touché aucun ennemi
         if self.last_action == 2 and not hit_enemy:
             self.reward += ACTION_REWARD  # Pénalité pour tir inefficace
+
+        if self.last_action == 0 or self.last_action == 1:
+            self.reward += ACTION_REWARD
 
         # Collision des missiles du joueur avec les astéroïdes
         for bullet in self.bullet_list:
