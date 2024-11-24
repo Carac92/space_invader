@@ -30,6 +30,18 @@ ASTEROID_DETECTION_RANGE = 100
 ENEMY_DETECTION_RANGE = 200
 ENEMY_BULLET_DETECTION_RANGE = 150
 
+# Récompenses
+HIT_ASTEROID_REWARD = -15
+HIT_NOTHING_REWARD = -10
+ACTION_REWARD= -1
+HIT_ENEMIES_REWARD = 100
+LOOSE_REWARD = -10000
+WIN_REWARD = 5000
+DODGE_REWARD = 0
+POSITION_REWARD = 0
+DODGE_ASTEROID_REWARD = 0
+
+
 
 class Bullet(arcade.Sprite):
     def update(self):
@@ -241,13 +253,12 @@ class SpaceInvadersGame(arcade.Window):
 
         self.enemy_shoot()
 
-        self.reward = -1  # Pénalité par défaut pour chaque mise à jour
 
         # Pénalité pour tirer
         if self.last_action == 2:
-            self.reward -= 4  # Pénalité plus élevée pour tirer
+            self.reward += ACTION_REWARD  # Pénalité plus élevée pour tirer
             if self.player.ammo <= 0 or not self.detect_enemies():
-                self.reward -= 10  # Pénalité supplémentaire pour tir inutile
+                self.reward += HIT_NOTHING_REWARD # Pénalité supplémentaire pour tir inutile
 
         # Collision des missiles du joueur avec les ennemis
         hit_enemy = False
@@ -259,11 +270,11 @@ class SpaceInvadersGame(arcade.Window):
                 for enemy in hit_list:
                     enemy.remove_from_sprite_lists()
                     self.score += 1
-                    self.reward += 100  # Récompense pour toucher un ennemi
+                    self.reward += HIT_ENEMIES_REWARD  # Récompense pour toucher un ennemi
 
         # Pénalité supplémentaire si le tir n'a touché aucun ennemi
         if self.last_action == 2 and not hit_enemy:
-            self.reward -= 5  # Pénalité pour tir inefficace
+            self.reward += ACTION_REWARD  # Pénalité pour tir inefficace
 
         # Collision des missiles du joueur avec les astéroïdes
         for bullet in self.bullet_list:
@@ -272,7 +283,7 @@ class SpaceInvadersGame(arcade.Window):
                 bullet.remove_from_sprite_lists()
                 for asteroid in asteroid_hit_list:
                     asteroid.take_damage()
-                self.reward -= 15  # Pénalité plus élevée pour toucher un astéroïde
+                self.reward += HIT_ASTEROID_REWARD  # Pénalité plus élevée pour toucher un astéroïde
 
         # Collision des missiles ennemis avec les astéroïdes
         for bullet in self.enemy_bullet_list:
@@ -285,33 +296,33 @@ class SpaceInvadersGame(arcade.Window):
         # Collision des missiles ennemis avec le joueur
         for bullet in self.enemy_bullet_list:
             if arcade.check_for_collision(bullet, self.player):
-                self.reward -= 100
+                self.reward += LOOSE_REWARD
                 self.game_over("Player hit by enemy bullet")
                 return  # Terminer la mise à jour pour éviter des erreurs
 
         # Récompense pour éviter un astéroïde
         if self.detect_asteroids() and self.last_action in [0, 1]:
-            self.reward += 2
+            self.reward += DODGE_ASTEROID_REWARD
 
         # Récompense pour se diriger vers l'ennemi le plus proche
         enemy_rel_x, _ = self.get_relative_enemy_position()
         if enemy_rel_x != NUM_BINS:
             if (enemy_rel_x < NUM_BINS // 2 and self.last_action == 0) or (enemy_rel_x > NUM_BINS // 2 and self.last_action == 1):
-                self.reward += 1
+                self.reward += POSITION_REWARD
 
         # Récompense pour éviter un missile ennemi dangereux
         if self.detect_enemy_bullets() and self.last_action in [0, 1]:
-            self.reward += 5
+            self.reward += DODGE_REWARD
 
         # Vérifier la fin de l'épisode si tous les ennemis sont vaincus
         if len(self.enemy_list) == 0:
-            self.reward += 1000  # Grande récompense pour gagner le jeu
+            self.reward += WIN_REWARD  # Grande récompense pour gagner le jeu
             self.game_over("All enemies defeated")
             return  # Terminer la mise à jour
 
         # Augmenter la pénalité pour être à court de munitions
         if self.player.ammo <= 0 and len(self.enemy_list) > 0:
-            self.reward -= 500  # Pénalité plus sévère
+            self.reward += LOOSE_REWARD  # Pénalité plus sévère
             self.game_over("Out of ammunition")
             return
 
