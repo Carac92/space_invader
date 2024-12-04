@@ -22,7 +22,7 @@ LEARNING_RATE = 0.05  # Taux d'apprentissage ajusté
 DISCOUNT_FACTOR = 0.98  # Facteur de décote ajusté
 EPSILON = 1.0  # Commence avec une exploration maximale
 EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.999  # Décroissance plus lente de l'exploration
+EPSILON_DECAY = 0.95  # Décroissance plus lente de l'exploration
 NUM_BINS = 10  # Réduction du nombre de bins pour gérer la taille de l'espace d'état
 
 # Portées des zones de détection
@@ -38,7 +38,7 @@ DO_NOTHING_REWARD = 0
 HIT_ENEMIES_REWARD = 50
 LOOSE_REWARD = -10000
 WIN_REWARD = 5000
-DODGE_REWARD = 0
+DODGE_REWARD = 20
 POSITION_REWARD = 0
 DODGE_ASTEROID_REWARD = 0
 
@@ -175,13 +175,21 @@ class SpaceInvadersGame(arcade.Window):
             return (NUM_BINS, NUM_BINS)
 
     def get_relative_enemy_bullet_position(self):
-        threatening_bullets = [bullet for bullet in self.enemy_bullet_list if bullet.center_y < self.player.center_y + 200]
+        threatening_bullets = [bullet for bullet in self.enemy_bullet_list if
+                               bullet.center_y < self.player.center_y + 200]
         if threatening_bullets:
             nearest_bullet = min(threatening_bullets, key=lambda b: abs(b.center_x - self.player.center_x))
-            relative_x = nearest_bullet.center_x - self.player.center_x + SCREEN_WIDTH / 2
+            relative_x = nearest_bullet.center_x - self.player.center_x
             relative_y = nearest_bullet.center_y - self.player.center_y
-            return (self.discretize(relative_x, bins=NUM_BINS, range_min=0, range_max=SCREEN_WIDTH),
-                    self.discretize(relative_y, bins=NUM_BINS, range_min=-SCREEN_HEIGHT, range_max=SCREEN_HEIGHT))
+            # Ajuster les valeurs pour être positives avant la discrétisation
+            relative_x += ENEMY_BULLET_DETECTION_RANGE
+            relative_y += ENEMY_BULLET_DETECTION_RANGE
+            # Discrétiser les positions relatives
+            relative_x_bin = self.discretize(relative_x, bins=NUM_BINS, range_min=0,
+                                             range_max=2 * ENEMY_BULLET_DETECTION_RANGE)
+            relative_y_bin = self.discretize(relative_y, bins=NUM_BINS, range_min=0,
+                                             range_max=2 * ENEMY_BULLET_DETECTION_RANGE)
+            return (relative_x_bin, relative_y_bin)
         else:
             return (NUM_BINS, NUM_BINS)
 
@@ -189,10 +197,10 @@ class SpaceInvadersGame(arcade.Window):
         player_bin = self.discretize(self.player.center_x)
         asteroid_detected = self.detect_asteroids()
         enemy_detected = self.detect_enemies()
-        bullet_detected = self.detect_enemy_bullets()
+        bullet_distance_bin = self.detect_enemy_bullets()
         enemy_rel_pos = self.get_relative_enemy_position()
         bullet_rel_pos = self.get_relative_enemy_bullet_position()
-        state = (player_bin, asteroid_detected, enemy_detected, bullet_detected, enemy_rel_pos, bullet_rel_pos)
+        state = (player_bin, asteroid_detected, enemy_detected, bullet_distance_bin, enemy_rel_pos, bullet_rel_pos)
         return state
 
     def detect_asteroids(self):
@@ -208,10 +216,17 @@ class SpaceInvadersGame(arcade.Window):
         return 0
 
     def detect_enemy_bullets(self):
+        min_distance = ENEMY_BULLET_DETECTION_RANGE + 1
         for bullet in self.enemy_bullet_list:
-            if abs(bullet.center_x - self.player.center_x) <= ENEMY_BULLET_DETECTION_RANGE and bullet.center_y < self.player.center_y + 150:
-                return 1
-        return 0
+            if bullet.center_y < self.player.center_y + 150:
+                distance = abs(bullet.center_x - self.player.center_x)
+                if distance <= ENEMY_BULLET_DETECTION_RANGE and distance < min_distance:
+                    min_distance = distance
+        if min_distance <= ENEMY_BULLET_DETECTION_RANGE:
+            # Discrétiser la distance en bins
+            return self.discretize(min_distance, bins=NUM_BINS, range_min=0, range_max=ENEMY_BULLET_DETECTION_RANGE)
+        else:
+            return NUM_BINS  # Aucune menace immédiate
 
     def choose_action(self):
         if random.random() < self.epsilon:
@@ -319,8 +334,12 @@ class SpaceInvadersGame(arcade.Window):
                 self.reward += POSITION_REWARD
 
         # Récompense pour éviter un missile ennemi dangereux
-        if self.detect_enemy_bullets() and self.last_action in [0, 1]:
-            self.reward += DODGE_REWARD
+        bullet_distance_bin = self.detect_enemy_bullets()
+        if bullet_distance_bin != NUM_BINS:
+            # Plus le missile est proche, plus la récompense pour l'évitement est grande
+            if self.last_action in [0, 1]:
+                dodge_reward = DODGE_REWARD * (NUM_BINS - bullet_distance_bin) / NUM_BINS
+                self.reward += dodge_reward
 
         # Vérifier la fin de l'épisode si tous les ennemis sont vaincus
         if len(self.enemy_list) == 0:
