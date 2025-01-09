@@ -7,9 +7,10 @@ class Action(Enum):
     MOVE_RIGHT = 2
     SHOOT = 3
 
+DISPLAY_MODE = False
 
 SCREEN_WIDTH = 400
-SCREEN_HEIGHT = 400
+SCREEN_HEIGHT = 600
 NUM_BINS = 10          # Nombre de bins pour la discrétisation de l'état
 BIN_SIZE = SCREEN_WIDTH / NUM_BINS
 FRAME_RATE = 1 / 1200
@@ -17,22 +18,22 @@ FRAME_RATE = 1 / 1200
 # Joueur et mouvements
 PLAYER_SPEED = BIN_SIZE
 BULLET_SPEED = BIN_SIZE
-BULLET_COOLDOWN = 10
+BULLET_COOLDOWN = 1
 NUM_ACTIONS = len(Action)
 
 # Ennemis
 ENEMY_SPEED = BIN_SIZE
 ENEMY_DROP_SPEED = BIN_SIZE
 ENEMY_SHOOT_PROBABILITY = 0.005
-NUM_ENEMY_ROWS = 1
+NUM_ENEMY_ROWS = 2
 NUM_ENEMY_COLS = 5
 ASTEROID_LIFE = 0
 
 # Apprentissage par renforcement
 LEARNING_RATE = 0.95
-DISCOUNT_FACTOR = 0.98
-EPSILON = 0          # Taux d'exploration initial
-EPSILON_MIN = 0    # Taux d'exploration minimum
+DISCOUNT_FACTOR = 0.95
+EPSILON = 0         # Taux d'exploration initial
+EPSILON_MIN = 0  # Taux d'exploration minimum
 EPSILON_DECAY = 0.99   # Facteur de décroissance d'EPSILON
 
 # Détection
@@ -45,8 +46,8 @@ AMMO_EXTRA = 10000000 # Détermine le nombre d'actions à partir de l'énumérat
 
 
 # Récompenses et pénalités
-WIN_REWARD = 100
-LOOSE_REWARD = -100
+WIN_REWARD = 200
+LOOSE_REWARD = -200
 
 HIT_ASTEROID_REWARD = 0
 HIT_NOTHING_REWARD = 0
