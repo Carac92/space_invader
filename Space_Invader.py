@@ -4,105 +4,6 @@ import numpy as np
 import os
 import pickle
 import matplotlib.pyplot as plt
-from enum import Enum
-
-class Action(Enum):
-    DO_NOTHING = 0
-    MOVE_LEFT = 1
-    MOVE_RIGHT = 2
-    SHOOT = 3
-
-# Constantes
-SCREEN_WIDTH = 400
-SCREEN_HEIGHT = 400
-PLAYER_SPEED = 5
-BULLET_SPEED = 2
-ENEMY_SPEED = 2
-ENEMY_DROP_SPEED = 30
-NUM_ENEMY_ROWS = 1
-NUM_ENEMY_COLS = 5
-BULLET_COOLDOWN = 10
-ENEMY_SHOOT_PROBABILITY = 0.005
-ASTEROID_LIFE = 0
-AMMO_EXTRA = 10000000
-NUM_ACTIONS = len(Action)  # Détermine le nombre d'actions à partir de l'énumération Action
-  # Ajout de l'action "Ne Rien Faire"
-LEARNING_RATE = 0.00025  # Taux d'apprentissage ajusté
-DISCOUNT_FACTOR = 0.98  # Facteur de décote ajusté
-EPSILON = 1.0  # Commence avec une exploration maximale
-EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.99  # Décroissance plus lente de l'exploration
-NUM_BINS = 10  # Réduction du nombre de bins pour gérer la taille de l'espace d'état
-
-# Portées des zones de détection
-ASTEROID_DETECTION_RANGE = 100
-ENEMY_DETECTION_RANGE = 200
-ENEMY_BULLET_DETECTION_RANGE = 150
-
-# Récompenses
-HIT_ASTEROID_REWARD = 0
-HIT_NOTHING_REWARD = 0
-ACTION_REWARD = 0
-DO_NOTHING_REWARD = 0
-HIT_ENEMIES_REWARD = 0
-LOOSE_REWARD = -10000
-WIN_REWARD = 10000
-DODGE_REWARD = 0
-POSITION_REWARD = 0
-DODGE_ASTEROID_REWARD = 0
-
-class Bullet(arcade.Sprite):
-    def update(self):
-        self.center_y += self.change_y
-        if self.bottom > SCREEN_HEIGHT or self.top < 0:
-            self.remove_from_sprite_lists()
-
-class Enemy(arcade.Sprite):
-    def update(self):
-        self.center_x += self.change_x
-        if self.left < 0 or self.right > SCREEN_WIDTH:
-            self.change_x *= -1
-            self.center_y -= ENEMY_DROP_SPEED
-        if self.bottom < 0:
-            self.remove_from_sprite_lists()
-
-class Player(arcade.Sprite):
-    def __init__(self, image, scale):
-        super().__init__(image, scale)
-        self.cooldown = 0
-        self.ammo = 0
-        self.change_x = 0
-
-    def update(self):
-        self.center_x += self.change_x
-        self.center_x = max(self.width / 2, min(SCREEN_WIDTH - self.width / 2, self.center_x))
-        self.change_x = 0  # Réinitialise le mouvement après l'action
-
-    def shoot(self, bullet_list):
-        if self.cooldown == 0 and self.ammo > 0:
-            bullet = Bullet("images/bullet.png", 1)
-            bullet.center_x = self.center_x
-            bullet.bottom = self.top
-            bullet.change_y = BULLET_SPEED
-            bullet_list.append(bullet)
-            self.cooldown = BULLET_COOLDOWN
-            self.ammo -= 1
-
-    def update_cooldown(self):
-        if self.cooldown > 0:
-            self.cooldown -= 1
-
-
-class Asteroid(arcade.Sprite):
-    def __init__(self, image, scale, life):
-        super().__init__(image, scale)
-        self.life = life
-
-    def take_damage(self):
-        self.life -= 1
-        if self.life <= 0:
-            self.remove_from_sprite_lists()
-
 
 class SpaceInvadersGame(arcade.Window):
     def __init__(self):
@@ -128,12 +29,11 @@ class SpaceInvadersGame(arcade.Window):
         self.load_q_table()
 
         self.l, = plt.plot(self.history)
-        plt.show()
 
     def setup(self):
         self.player = Player("images/player.png", 0.5)
-        self.player.center_x = SCREEN_WIDTH // 2
-        self.player.center_y = 50
+        self.player.center_x = (NUM_BINS//2) * BIN_SIZE + BIN_SIZE / 2
+        self.player.center_y = BIN_SIZE / 2
 
         self.bullet_list = arcade.SpriteList()
         self.enemy_list = arcade.SpriteList()
@@ -143,8 +43,8 @@ class SpaceInvadersGame(arcade.Window):
         for row in range(NUM_ENEMY_ROWS):
             for col in range(NUM_ENEMY_COLS):
                 enemy = Enemy("images/enemy.png", 0.5)
-                enemy.center_x = 80 + col * 60
-                enemy.center_y = SCREEN_HEIGHT - 100 - (row * 60)
+                enemy.center_x = BIN_SIZE/2 + col * BIN_SIZE
+                enemy.center_y = SCREEN_HEIGHT - BIN_SIZE/2 - (row * BIN_SIZE)
                 enemy.change_x = ENEMY_SPEED
                 self.enemy_list.append(enemy)
 
@@ -316,7 +216,10 @@ class SpaceInvadersGame(arcade.Window):
         self.player.update()
         self.player.update_cooldown()
         self.bullet_list.update()
-        self.enemy_list.update()
+        game_over_by_enemy_out_of_field = self.enemy_list.update()
+        if game_over_by_enemy_out_of_field:
+            self.game_over("Enemies reached the base")
+
         self.enemy_bullet_list.update()
         self.asteroid_list.update()
 
@@ -382,6 +285,13 @@ class SpaceInvadersGame(arcade.Window):
     def on_draw(self):
         arcade.start_render()
 
+        # Dessiner la grille
+        cell_size = SCREEN_WIDTH // NUM_BINS
+        for x in range(0, SCREEN_WIDTH + 1, cell_size):
+            arcade.draw_line(x, 0, x, SCREEN_HEIGHT, arcade.color.WHITE, 1)
+        for y in range(0, SCREEN_HEIGHT + 1, cell_size):
+            arcade.draw_line(0, y, SCREEN_WIDTH, y, arcade.color.WHITE, 1)
+
         #get nearest enemy
         nearest_enemy, _ = self.get_relative_enemy_position()
         #reset color of all enemies
@@ -414,6 +324,7 @@ class SpaceInvadersGame(arcade.Window):
             if random.random() < ENEMY_SHOOT_PROBABILITY:
                 bullet = Bullet("images/enemy_bullet.png", 1)
                 bullet.center_x = enemy.center_x
+                bullet.center_y = 549
                 bullet.top = enemy.bottom
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
@@ -434,3 +345,4 @@ if __name__ == "__main__":
     game = SpaceInvadersGame()
     game.setup()
     arcade.run()
+    plt.show()
