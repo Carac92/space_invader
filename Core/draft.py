@@ -2,20 +2,37 @@
 import os
 import pickle
 import random
+from collections import deque
 
 import numpy as np
+import torch
 from matplotlib import pyplot as plt
 
 import arcade
+from torch import optim, nn
 
 from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
 from Entity.Player import Player
 from Setting import *
 
-class SpaceInvadersGame(arcade.Window):
+class DQN(nn.Module):
+    def __init__(self, input_size, output_size):
+        super(DQN, self).__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, output_size)
+        )
+
+    def forward(self, x):
+        return self.network(x)
+
+class SpaceInvadersDQN(arcade.Window):
     def __init__(self):
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, "Space Invaders - IA avec Pénalités Ajustées")
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, "Space Invaders - DQN")
         self.game_speed = FRAME_RATE
         arcade.set_background_color(arcade.color.BLACK)
         self.set_update_rate(self.game_speed)
@@ -32,10 +49,18 @@ class SpaceInvadersGame(arcade.Window):
         self.total_reward = 0  # Variable pour accumuler les récompenses
         self.last_action = Action.DO_NOTHING
         self.state = None
-        # Utiliser un dictionnaire pour la table Q
-        self.q_table = {}
+        self.batch_size = 64
         self.history = []
-        self.load_q_table()
+        # DQN specific
+        self.input_size = 6  # State dimension (relative x,y for nearest enemy and bullet, player x, ammo)
+        self.output_size = len(Action)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.policy_net = DQN(self.input_size, self.output_size).to(self.device)
+        self.target_net = DQN(self.input_size, self.output_size).to(self.device)
+        self.target_net.load_state_dict(self.policy_net.state_dict())
+
+        self.optimizer = optim.Adam(self.policy_net.parameters())
+        self.memory = deque(maxlen=10000)
 
     def setup(self):
         self.player = Player("images/player.png", 0.5)
@@ -95,18 +120,7 @@ class SpaceInvadersGame(arcade.Window):
             self.reset()
         elif key == arcade.key.Q:
             self.close()
-            window_size = 100
-
-            # Moyenne mobile
-            smoothed_history = np.convolve(self.history, np.ones(window_size) / window_size,
-                                           mode='valid')
-
-            # Affichage de la courbe lissée
-            plt.plot(smoothed_history)
-            plt.xlabel("Épisode")
-            plt.ylabel("Récompense moyenne")
-            plt.title("Progression globale des Récompenses")
-            plt.show()
+            self.plot_training_progress()
             exit(0)
         elif key == arcade.key.H:
             self.history = []
@@ -116,6 +130,30 @@ class SpaceInvadersGame(arcade.Window):
         elif key == arcade.key.DOWN:  # Decelerate game speed
             self.game_speed = min(1 / 12, self.game_speed * 2)
             self.set_update_rate(self.game_speed)
+
+    def plot_training_progress(self):
+        """Affiche un graphique de progression des récompenses."""
+        if len(self.history) < 10:
+            print("Pas assez de données pour afficher un graphique.")
+            return
+
+        # Convertir l'historique en numpy array
+        rewards = np.array(self.history)
+
+        # Calculer la moyenne mobile (fenêtre de 100 épisodes ou moins si historique court)
+        window_size = min(100, len(rewards))
+        smoothed_rewards = np.convolve(rewards, np.ones(window_size) / window_size, mode='valid')
+
+        # Affichage du graphique
+        plt.figure(figsize=(10, 6))
+        plt.plot(range(len(smoothed_rewards)), smoothed_rewards, label="Récompense Moyenne (lissée)", color="blue")
+        plt.plot(range(len(rewards)), rewards, alpha=0.3, label="Récompenses Brutes", color="orange")
+        plt.title("Progression de l'Apprentissage DQN")
+        plt.xlabel("Épisodes")
+        plt.ylabel("Récompense Totale")
+        plt.legend()
+        plt.grid()
+        plt.show()
 
     def discretize(self, value):
         bin_size = SCREEN_WIDTH // NUM_BINS
@@ -157,8 +195,17 @@ class SpaceInvadersGame(arcade.Window):
     def get_state(self):
         _, enemy_rel_pos = self.get_relative_enemy_position()
         _, bullet_rel_pos = self.get_relative_enemy_bullet_position()
-        state = (enemy_rel_pos, bullet_rel_pos)
-        return state
+
+        state = [
+            enemy_rel_pos[0],  # Relative X position of nearest enemy
+            enemy_rel_pos[1],  # Relative Y position of nearest enemy
+            bullet_rel_pos[0],  # Relative X position of nearest bullet
+            bullet_rel_pos[1],  # Relative Y position of nearest bullet
+            self.discretize(self.player.center_x),  # Player X position
+            self.player.ammo  # Remaining ammo
+        ]
+
+        return torch.FloatTensor(state).unsqueeze(0).to(self.device)
 
     def detect_asteroids(self):
         for asteroid in self.asteroid_list:
@@ -172,25 +219,32 @@ class SpaceInvadersGame(arcade.Window):
                 return 1
         return 0
 
-
     def choose_action(self):
-        # enleve la possibilité de tirer si le cooldown n'est pas à 0
+         # Filtrer les actions valides
         if self.player.cooldown > 0:
             valid_actions = [action for action in Action if action != Action.SHOOT]
         else:
             valid_actions = list(Action)
 
+        # Exploration : Choisir une action aléatoire
         if random.random() < self.epsilon:
-            return random.choice(valid_actions)
-        else:
-            q_values = [self.q_table.get((self.state, action), 0) for action in valid_actions]
-            # print("tab: " + str(q_values))
-            max_value = max(q_values)
-            # print("max: " + str(max_value))
-            # pour randomiser au cas où il y ai plusieurs actions avec un valeur similaire
-            # par ex, les 4 à 0 car pas tester. Ca evite d'avoir toujours les memes actions
-            max_actions = [action for action, q in zip(valid_actions, q_values) if q == max_value]
-            return random.choice(max_actions)
+            chosen_action = random.choice(valid_actions)
+            return chosen_action
+
+        # Exploitation : Utiliser le réseau de neurones pour choisir l'action optimale
+        with torch.no_grad():
+            state_tensor = self.get_state()
+            q_values = self.policy_net(state_tensor).cpu().numpy()[0]
+        # Filtrer les valeurs Q pour ne garder que celles des actions valides
+        valid_q_values = [q_values[action.value] for action in valid_actions]
+        # Trouver l'action avec la valeur Q maximale
+        max_value = max(valid_q_values)
+        tolerance = 1e-6
+        max_actions = [action for action, q in zip(valid_actions, q_values) if abs(q - max_value) < tolerance]
+        # Randomiser si plusieurs actions ont la même valeur maximale
+        chosen_action = random.choice(max_actions)
+        print(f"Exploitation: Action choisie via DQN -> {chosen_action}, Valeur Q -> {max_value}")
+        return chosen_action
 
     def perform_action(self, action):
         if action == Action.MOVE_LEFT:  # Utiliser Action.MOVE_LEFT au lieu de 0
@@ -203,14 +257,37 @@ class SpaceInvadersGame(arcade.Window):
             pass
 
     def update_q_table(self, next_state):
-        if self.last_action == Action.SHOOT and self.player.cooldown > 0:
+        if len(self.memory) < self.batch_size:
             return
-        # recupere la valeur actuelle du state, 0 si elle n'existe pas
-        q_current = self.q_table.get((self.state, self.last_action), 0)
-        q_next = max([self.q_table.get((next_state, action), 0) for action in Action])
-        td_target = self.reward + DISCOUNT_FACTOR * q_next
-        td_error = td_target - q_current
-        self.q_table[(self.state, self.last_action)] = q_current + LEARNING_RATE * td_error
+
+            # Échantillonner un batch de transitions
+        transitions = random.sample(self.memory, self.batch_size)
+        state_batch, action_batch, reward_batch, next_state_batch = zip(*transitions)
+
+        state_batch = torch.cat(state_batch)
+        action_batch = torch.tensor(action_batch, dtype=torch.long, device=self.device).unsqueeze(1)
+        reward_batch = torch.tensor(reward_batch, dtype=torch.float, device=self.device)
+        next_state_batch = torch.cat(next_state_batch)
+
+        # Q-values pour les actions prises
+        q_values = self.policy_net(state_batch).gather(1, action_batch)
+
+        # Q-values cibles
+        with torch.no_grad():
+            max_next_q_values = self.target_net(next_state_batch).max(1)[0]
+            target_q_values = reward_batch + (self.gamma * max_next_q_values)
+
+        # Perte
+        loss = nn.SmoothL1Loss()(q_values, target_q_values.unsqueeze(1))
+
+        # Log de la perte
+        print(f"Perte actuelle : {loss.item()}")
+
+        # Optimisation
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
+        self.optimizer.step()
 
     # A voir pour utiliser delta_time et limiter le nombre d update de la Q_table
     def on_update(self, delta_time):
@@ -342,12 +419,23 @@ class SpaceInvadersGame(arcade.Window):
                 self.enemy_bullet_list.append(bullet)
 
     def save_q_table(self):
-        with open("q_table.pkl", "wb") as f:
-            pickle.dump((self.q_table, self.history), f)
+        torch.save({
+            'policy_net_state_dict': self.policy_net.state_dict(),
+            'target_net_state_dict': self.target_net.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'epsilon': self.epsilon,
+            'history': self.history,
+            'episode': self.episode,
+        }, 'dqn_model.pth')
 
     def load_q_table(self):
-        if os.path.exists("q_table.pkl"):
-            with open("q_table.pkl", "rb") as f:
-                self.q_table, self.history = pickle.load(f)
+        if os.path.exists('dqn_model.pth'):
+            checkpoint = torch.load('dqn_model.pth')
+            self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
+            self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.epsilon = checkpoint['epsilon']
+            self.history = checkpoint['history']
+            self.episode = checkpoint['episode']
         else:
-            self.q_table = {}
+            print("No saved model found. Starting from scratch.")

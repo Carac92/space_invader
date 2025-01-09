@@ -7,7 +7,7 @@ class Action(Enum):
     MOVE_RIGHT = 2
     SHOOT = 3
 
-DISPLAY_MODE = False
+DISPLAY_MODE = True
 
 SCREEN_WIDTH = 400
 SCREEN_HEIGHT = 600
@@ -32,7 +32,7 @@ ASTEROID_LIFE = 0
 # Apprentissage par renforcement
 LEARNING_RATE = 0.95
 DISCOUNT_FACTOR = 0.95
-EPSILON = 0         # Taux d'exploration initial
+EPSILON =  0         # Taux d'exploration initial
 EPSILON_MIN = 0  # Taux d'exploration minimum
 EPSILON_DECAY = 0.99   # Facteur de décroissance d'EPSILON
 

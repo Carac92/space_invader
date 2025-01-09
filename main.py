@@ -1,6 +1,7 @@
 import arcade
 from Core.Game import SpaceInvadersGame
-from Core.QGame import QSpaceInvadersGame
+from Core.draft import SpaceInvadersDQN
+
 
 def main():
     print("Select the game mode:")
@@ -11,7 +12,7 @@ def main():
     if choice == "1":
         game = SpaceInvadersGame()
     elif choice == "2":
-        game = QSpaceInvadersGame()
+        game = SpaceInvadersDQN()
     else:
         print("Invalid choice. Exiting...")
         return
