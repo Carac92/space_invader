@@ -3,26 +3,35 @@ import random
 import numpy as np
 import os
 import pickle
+import matplotlib.pyplot as plt
+from enum import Enum
+
+class Action(Enum):
+    DO_NOTHING = 0
+    MOVE_LEFT = 1
+    MOVE_RIGHT = 2
+    SHOOT = 3
 
 # Constantes
-SCREEN_WIDTH = 800
-SCREEN_HEIGHT = 600
+SCREEN_WIDTH = 400
+SCREEN_HEIGHT = 400
 PLAYER_SPEED = 5
-BULLET_SPEED = 5
-ENEMY_SPEED = 3
+BULLET_SPEED = 2
+ENEMY_SPEED = 2
 ENEMY_DROP_SPEED = 30
-NUM_ENEMY_ROWS = 2
-NUM_ENEMY_COLS = 10
+NUM_ENEMY_ROWS = 1
+NUM_ENEMY_COLS = 5
 BULLET_COOLDOWN = 10
-ENEMY_SHOOT_PROBABILITY = 0.0075
-ASTEROID_LIFE = 5
+ENEMY_SHOOT_PROBABILITY = 0.005
+ASTEROID_LIFE = 0
 AMMO_EXTRA = 10000000
-NUM_ACTIONS = 4  # Ajout de l'action "Ne Rien Faire"
-LEARNING_RATE = 0.05  # Taux d'apprentissage ajusté
+NUM_ACTIONS = len(Action)  # Détermine le nombre d'actions à partir de l'énumération Action
+  # Ajout de l'action "Ne Rien Faire"
+LEARNING_RATE = 0.00025  # Taux d'apprentissage ajusté
 DISCOUNT_FACTOR = 0.98  # Facteur de décote ajusté
 EPSILON = 1.0  # Commence avec une exploration maximale
 EPSILON_MIN = 0.01
-EPSILON_DECAY = 0.95  # Décroissance plus lente de l'exploration
+EPSILON_DECAY = 0.99  # Décroissance plus lente de l'exploration
 NUM_BINS = 10  # Réduction du nombre de bins pour gérer la taille de l'espace d'état
 
 # Portées des zones de détection
@@ -31,24 +40,22 @@ ENEMY_DETECTION_RANGE = 200
 ENEMY_BULLET_DETECTION_RANGE = 150
 
 # Récompenses
-HIT_ASTEROID_REWARD = -15
-HIT_NOTHING_REWARD = -10
-ACTION_REWARD = -5
+HIT_ASTEROID_REWARD = 0
+HIT_NOTHING_REWARD = 0
+ACTION_REWARD = 0
 DO_NOTHING_REWARD = 0
-HIT_ENEMIES_REWARD = 50
+HIT_ENEMIES_REWARD = 0
 LOOSE_REWARD = -10000
-WIN_REWARD = 5000
-DODGE_REWARD = 20
+WIN_REWARD = 10000
+DODGE_REWARD = 0
 POSITION_REWARD = 0
 DODGE_ASTEROID_REWARD = 0
-
 
 class Bullet(arcade.Sprite):
     def update(self):
         self.center_y += self.change_y
         if self.bottom > SCREEN_HEIGHT or self.top < 0:
             self.remove_from_sprite_lists()
-
 
 class Enemy(arcade.Sprite):
     def update(self):
@@ -58,7 +65,6 @@ class Enemy(arcade.Sprite):
             self.center_y -= ENEMY_DROP_SPEED
         if self.bottom < 0:
             self.remove_from_sprite_lists()
-
 
 class Player(arcade.Sprite):
     def __init__(self, image, scale):
@@ -113,12 +119,16 @@ class SpaceInvadersGame(arcade.Window):
         self.reset_required = False
         self.reward = 0
         self.total_reward = 0  # Variable pour accumuler les récompenses
-        self.last_action = 0
+        self.last_action = Action.DO_NOTHING
         self.state = None
 
         # Utiliser un dictionnaire pour la table Q
         self.q_table = {}
+        self.history = []
         self.load_q_table()
+
+        self.l, = plt.plot(self.history)
+        plt.show()
 
     def setup(self):
         self.player = Player("images/player.png", 0.5)
@@ -138,11 +148,11 @@ class SpaceInvadersGame(arcade.Window):
                 enemy.change_x = ENEMY_SPEED
                 self.enemy_list.append(enemy)
 
-        for col in range(8):
+        """for col in range(8):
             asteroid = Asteroid("images/asteroid.png", 1, ASTEROID_LIFE)
             asteroid.center_x = 100 + col * 90
             asteroid.center_y = SCREEN_HEIGHT // 2
-            self.asteroid_list.append(asteroid)
+            self.asteroid_list.append(asteroid)"""
 
         total_enemies = NUM_ENEMY_ROWS * NUM_ENEMY_COLS
         self.player.ammo = total_enemies + AMMO_EXTRA
@@ -157,50 +167,63 @@ class SpaceInvadersGame(arcade.Window):
         self.reset_required = True
         self.episode += 1
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
+        self.history.append(self.total_reward)
         self.save_q_table()
 
-    def discretize(self, value, bins=NUM_BINS, range_min=0, range_max=SCREEN_WIDTH):
-        bin_size = (range_max - range_min) / bins
-        index = int((value - range_min) // bin_size)
-        return min(max(index, 0), bins - 1)
+    def discretize(self, value):
+        bin_size = SCREEN_WIDTH // NUM_BINS
+        index = int(value // bin_size)
+        # prends en compte si le x est plutot vers la droite, ou plutot vers la gauche
+        if value%bin_size > 0.5 * bin_size:
+            index += 1
+        return index
+
+    """def get_relative_enemy_position(self):
+        if self.enemy_list:
+            nearest_enemy = min(self.enemy_list, key=lambda e: e.center_x - self.player.center_x)
+            relative_x = nearest_enemy.center_x - self.player.center_x
+            relative_y = nearest_enemy.center_y - self.player.center_y
+            return (self.discretize(relative_x),
+                    self.discretize(relative_y))
+        else:
+            return 99, 99"""
 
     def get_relative_enemy_position(self):
         if self.enemy_list:
-            nearest_enemy = min(self.enemy_list, key=lambda e: abs(e.center_x - self.player.center_x))
-            relative_x = nearest_enemy.center_x - self.player.center_x + SCREEN_WIDTH / 2
+            nearest_enemy = min(self.enemy_list, key=lambda e: ((e.center_x - self.player.center_x) ** 2 + (
+                        e.center_y - self.player.center_y) ** 2) ** 0.5)
+            relative_x = nearest_enemy.center_x - self.player.center_x
             relative_y = nearest_enemy.center_y - self.player.center_y
-            return (self.discretize(relative_x, bins=NUM_BINS, range_min=0, range_max=SCREEN_WIDTH),
-                    self.discretize(relative_y, bins=NUM_BINS, range_min=-SCREEN_HEIGHT, range_max=SCREEN_HEIGHT))
+            return nearest_enemy, (self.discretize(relative_x), self.discretize(relative_y))
         else:
-            return (NUM_BINS, NUM_BINS)
+            return None, (99, 99)
 
     def get_relative_enemy_bullet_position(self):
+        #pour ne prendre en compte que les bullets qui sont a moins de 200 pxl de hauteur du joueur
         threatening_bullets = [bullet for bullet in self.enemy_bullet_list if
-                               bullet.center_y < self.player.center_y + 200]
+                               abs(bullet.center_y - self.player.center_y) < 200]
         if threatening_bullets:
-            nearest_bullet = min(threatening_bullets, key=lambda b: abs(b.center_x - self.player.center_x))
+            #division euclidienne pour prendre en compte x et y
+            nearest_bullet = min(threatening_bullets, key=lambda b: ((b.center_x - self.player.center_x) ** 2 + (
+                        b.center_y - self.player.center_y) ** 2) ** 0.5)
             relative_x = nearest_bullet.center_x - self.player.center_x
             relative_y = nearest_bullet.center_y - self.player.center_y
-            # Ajuster les valeurs pour être positives avant la discrétisation
-            relative_x += ENEMY_BULLET_DETECTION_RANGE
-            relative_y += ENEMY_BULLET_DETECTION_RANGE
             # Discrétiser les positions relatives
-            relative_x_bin = self.discretize(relative_x, bins=NUM_BINS, range_min=0,
-                                             range_max=2 * ENEMY_BULLET_DETECTION_RANGE)
-            relative_y_bin = self.discretize(relative_y, bins=NUM_BINS, range_min=0,
-                                             range_max=2 * ENEMY_BULLET_DETECTION_RANGE)
-            return (relative_x_bin, relative_y_bin)
+            relative_x_bin = self.discretize(relative_x)
+            relative_y_bin = self.discretize(relative_y)
+            return nearest_bullet,(relative_x_bin, relative_y_bin)
         else:
-            return (NUM_BINS, NUM_BINS)
+            return None,(99, 99)
 
     def get_state(self):
         player_bin = self.discretize(self.player.center_x)
         asteroid_detected = self.detect_asteroids()
         enemy_detected = self.detect_enemies()
         bullet_distance_bin = self.detect_enemy_bullets()
-        enemy_rel_pos = self.get_relative_enemy_position()
-        bullet_rel_pos = self.get_relative_enemy_bullet_position()
-        state = (player_bin, asteroid_detected, enemy_detected, bullet_distance_bin, enemy_rel_pos, bullet_rel_pos)
+        _,enemy_rel_pos = self.get_relative_enemy_position()
+        _,bullet_rel_pos = self.get_relative_enemy_bullet_position()
+        #state = (player_bin, asteroid_detected, enemy_detected, bullet_distance_bin, enemy_rel_pos, bullet_rel_pos)
+        state = (enemy_rel_pos,bullet_rel_pos)
         return state
 
     def detect_asteroids(self):
@@ -219,39 +242,67 @@ class SpaceInvadersGame(arcade.Window):
         min_distance = ENEMY_BULLET_DETECTION_RANGE + 1
         for bullet in self.enemy_bullet_list:
             if bullet.center_y < self.player.center_y + 150:
-                distance = abs(bullet.center_x - self.player.center_x)
-                if distance <= ENEMY_BULLET_DETECTION_RANGE and distance < min_distance:
+                distance = bullet.center_x - self.player.center_x
+                if abs(distance) <= ENEMY_BULLET_DETECTION_RANGE and abs(distance) < abs(min_distance):
                     min_distance = distance
-        if min_distance <= ENEMY_BULLET_DETECTION_RANGE:
+        if abs(min_distance) <= ENEMY_BULLET_DETECTION_RANGE:
             # Discrétiser la distance en bins
-            return self.discretize(min_distance, bins=NUM_BINS, range_min=0, range_max=ENEMY_BULLET_DETECTION_RANGE)
+            return self.discretize(min_distance)
         else:
-            return NUM_BINS  # Aucune menace immédiate
+            return 99  # Aucune menace immédiate
 
-    def choose_action(self):
+    """def choose_action(self):
         if random.random() < self.epsilon:
             return random.randint(0, NUM_ACTIONS - 1)
         else:
             q_values = [self.q_table.get((self.state, a), 0) for a in range(NUM_ACTIONS)]
-            return int(np.argmax(q_values))
+            return int(np.argmax(q_values))"""
+
+    def choose_action(self):
+        #enleve la possibilité de tirer si le cooldown n'est pas à 0
+        if self.player.cooldown > 0:
+            valid_actions = [action for action in Action if action != Action.SHOOT]
+        else:
+            valid_actions = list(Action)
+
+        if random.random() < self.epsilon:
+            return random.choice(valid_actions)
+        else:
+            q_values = [self.q_table.get((self.state, action), 0) for action in valid_actions]
+            max_value = max(q_values)
+            #pour randomiser au cas où il y ai plusieurs actions avec un valeur similaire
+            #par ex, les 4 à 0 car pas tester. Ca evite d'avoir toujours les memes actions
+            max_actions = [action for action, q in zip(valid_actions, q_values) if q == max_value]
+            return random.choice(max_actions)
 
     def perform_action(self, action):
-        if action == 0:  # Se déplacer à gauche
+        if action == Action.MOVE_LEFT:  # Utiliser Action.MOVE_LEFT au lieu de 0
             self.player.change_x = -PLAYER_SPEED
-        elif action == 1:  # Se déplacer à droite
+        elif action == Action.MOVE_RIGHT:  # Utiliser Action.MOVE_RIGHT au lieu de 1
             self.player.change_x = PLAYER_SPEED
-        elif action == 2:  # Tirer
+        elif action == Action.SHOOT:  # Utiliser Action.SHOOT au lieu de 2
             self.player.shoot(self.bullet_list)
-        elif action == 3:  # Ne Rien Faire
-            pass  # Aucune action n'est effectuée
+        elif action == Action.DO_NOTHING:  # Utiliser Action.DO_NOTHING au lieu de 3
+            pass
 
-    def update_q_table(self, next_state):
+    """def update_q_table(self, next_state):
         q_current = self.q_table.get((self.state, self.last_action), 0)
         q_next = max([self.q_table.get((next_state, a), 0) for a in range(NUM_ACTIONS)])
         td_target = self.reward + DISCOUNT_FACTOR * q_next
         td_error = td_target - q_current
+        self.q_table[(self.state, self.last_action)] = q_current + LEARNING_RATE * td_error"""
+
+    def update_q_table(self, next_state):
+        if self.last_action == Action.SHOOT and self.player.cooldown > 0:
+            return
+        #recupere la valeur actuelle du state, 0 si elle n'existe pas
+        q_current = self.q_table.get((self.state, self.last_action), 0)
+        q_next = max([self.q_table.get((next_state, action), 0) for action in Action])
+        td_target = self.reward + DISCOUNT_FACTOR * q_next
+        td_error = td_target - q_current
         self.q_table[(self.state, self.last_action)] = q_current + LEARNING_RATE * td_error
 
+    #A voir pour utiliser delta_time et limiter le nombre d update de la Q_table
     def on_update(self, delta_time):
         if self.reset_required:
             self.setup()
@@ -273,12 +324,6 @@ class SpaceInvadersGame(arcade.Window):
 
         self.reward = 0  # Réinitialisation de la récompense
 
-        # Pénalité pour tirer
-        if self.last_action == 2:
-            self.reward += ACTION_REWARD  # Pénalité pour tirer
-            if self.player.ammo <= 0 or not self.detect_enemies():
-                self.reward += HIT_NOTHING_REWARD  # Pénalité supplémentaire pour tir inutile
-
         # Collision des missiles du joueur avec les ennemis
         hit_enemy = False
         for bullet in self.bullet_list:
@@ -291,11 +336,7 @@ class SpaceInvadersGame(arcade.Window):
                     self.score += 1
                     self.reward += HIT_ENEMIES_REWARD  # Récompense pour toucher un ennemi
 
-        # Pénalité supplémentaire si le tir n'a touché aucun ennemi
-        if self.last_action == 2 and not hit_enemy:
-            self.reward += ACTION_REWARD  # Pénalité pour tir inefficace
-
-        if self.last_action == 0 or self.last_action == 1:
+        if self.last_action == Action.MOVE_LEFT or self.last_action == Action.MOVE_RIGHT:
             self.reward += ACTION_REWARD
 
         # Collision des missiles du joueur avec les astéroïdes
@@ -323,23 +364,6 @@ class SpaceInvadersGame(arcade.Window):
                 self.game_over("Player hit by enemy bullet")
                 return  # Terminer la mise à jour pour éviter des erreurs
 
-        # Récompense pour éviter un astéroïde
-        if self.detect_asteroids() and self.last_action in [0, 1]:
-            self.reward += DODGE_ASTEROID_REWARD
-
-        # Récompense pour se diriger vers l'ennemi le plus proche
-        enemy_rel_x, _ = self.get_relative_enemy_position()
-        if enemy_rel_x != NUM_BINS:
-            if (enemy_rel_x < NUM_BINS // 2 and self.last_action == 0) or (enemy_rel_x > NUM_BINS // 2 and self.last_action == 1):
-                self.reward += POSITION_REWARD
-
-        # Récompense pour éviter un missile ennemi dangereux
-        bullet_distance_bin = self.detect_enemy_bullets()
-        if bullet_distance_bin != NUM_BINS:
-            # Plus le missile est proche, plus la récompense pour l'évitement est grande
-            if self.last_action in [0, 1]:
-                dodge_reward = DODGE_REWARD * (NUM_BINS - bullet_distance_bin) / NUM_BINS
-                self.reward += dodge_reward
 
         # Vérifier la fin de l'épisode si tous les ennemis sont vaincus
         if len(self.enemy_list) == 0:
@@ -348,12 +372,6 @@ class SpaceInvadersGame(arcade.Window):
             self.game_over("All enemies defeated")
             return  # Terminer la mise à jour
 
-        # Augmenter la pénalité pour être à court de munitions
-        if self.player.ammo <= 0 and len(self.enemy_list) > 0:
-            self.reward += LOOSE_REWARD  # Pénalité plus sévère
-            self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
-            self.game_over("Out of ammunition")
-            return
 
         next_state = self.get_state()
         self.update_q_table(next_state)
@@ -363,15 +381,33 @@ class SpaceInvadersGame(arcade.Window):
 
     def on_draw(self):
         arcade.start_render()
+
+        #get nearest enemy
+        nearest_enemy, _ = self.get_relative_enemy_position()
+        #reset color of all enemies
+        for enemy in self.enemy_list:
+            enemy.color = arcade.color.WHITE
+        #color nearest enemy in red
+        if nearest_enemy:
+            nearest_enemy.color = arcade.color.RED
+
+        nearest_bullet, _ = self.get_relative_enemy_bullet_position()
+        for bullet in self.enemy_bullet_list:
+            bullet.color = arcade.color.WHITE
+        if nearest_bullet:
+            nearest_bullet.color = arcade.color.RED
+
         self.player.draw()
         self.bullet_list.draw()
         self.enemy_list.draw()
         self.enemy_bullet_list.draw()
         self.asteroid_list.draw()
         arcade.draw_text(f"Score: {self.score}", 10, 20, arcade.color.WHITE, 14)
-        arcade.draw_text(f"Ammo: {self.player.ammo}", 10, 50, arcade.color.WHITE, 14)
+        #arcade.draw_text(f"Ammo: {self.player.ammo}", 10, 50, arcade.color.WHITE, 14)
         arcade.draw_text(f"Episode: {self.episode}", 10, 80, arcade.color.WHITE, 14)
-        arcade.draw_text(f"Total Reward: {self.total_reward}", 10, 110, arcade.color.WHITE, 14)  # Affichage du total des récompenses
+        arcade.draw_text(f"Total Reward: {self.total_reward}", 10, 110, arcade.color.WHITE, 14)
+        arcade.draw_text(f"Epsilon(exploration rate): {self.epsilon}", 10, 50, arcade.color.WHITE, 14)
+
 
     def enemy_shoot(self):
         for enemy in self.enemy_list:
@@ -384,12 +420,12 @@ class SpaceInvadersGame(arcade.Window):
 
     def save_q_table(self):
         with open("q_table.pkl", "wb") as f:
-            pickle.dump(self.q_table, f)
+            pickle.dump((self.q_table, self.history), f)
 
     def load_q_table(self):
         if os.path.exists("q_table.pkl"):
             with open("q_table.pkl", "rb") as f:
-                self.q_table = pickle.load(f)
+                self.q_table, self.history = pickle.load(f)
         else:
             self.q_table = {}
 
