@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import arcade
+
+from Core.Common import draw_grid
 from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
 from Entity.Player import Player
@@ -264,13 +266,6 @@ class QSpaceInvadersGame(arcade.Window):
                 bullet.center_y = enemy.center_y - BULLET_SPEED
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
-
-def draw_grid():
-    cell_size = SCREEN_WIDTH // NUM_BINS
-    for x in range(0, SCREEN_WIDTH + 1, cell_size):
-        arcade.draw_line(x, 0, x, SCREEN_HEIGHT, arcade.color.WHITE, 1)
-    for y in range(0, SCREEN_HEIGHT + 1, cell_size):
-        arcade.draw_line(0, y, SCREEN_WIDTH, y, arcade.color.WHITE, 1)
 
 
 def discretize(value):

@@ -3,6 +3,7 @@ import arcade
 import numpy as np
 from matplotlib import pyplot as plt
 
+from Core.Common import draw_grid, discretize
 from Core.Q_Table_Utils import save_q_table, load_q_table
 from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
@@ -27,10 +28,13 @@ class SpaceInvadersGame(arcade.Window):
         self.enemy_list = None
         self.bullet_list = None
         self.player = None
+        self.display_mode = True  # True for Arcade, False for console-only
+        self.game_speed = FRAME_RATE
         arcade.set_background_color(arcade.color.BLACK)
-        self.set_update_rate(FRAME_RATE)
+        self.set_update_rate(self.game_speed)
         self.initialize_game_state()
         load_q_table()
+
     def initialize_game_state(self):
         self.player = None
         self.bullet_list = arcade.SpriteList()
@@ -68,10 +72,42 @@ class SpaceInvadersGame(arcade.Window):
                 enemy.change_x = ENEMY_SPEED
                 self.enemy_list.append(enemy)
 
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.R:
+            self.reset()
+        elif key == arcade.key.Q:
+            self.close()
+            window_size = 100
+            # Moyenne mobile
+            smoothed_history = np.convolve(self.history, np.ones(window_size) / window_size, mode='valid')
+            # Affichage de la courbe lissée
+            plt.plot(smoothed_history)
+            plt.xlabel("Épisode")
+            plt.ylabel("Récompense moyenne")
+            plt.title("Progression globale des Récompenses")
+            plt.show()
+            exit(0)
+        elif key == arcade.key.H:
+            self.history = []
+        elif key == arcade.key.UP:  # Accelerate game speed
+            self.game_speed = max(1 / 4400, self.game_speed / 2)
+            self.set_update_rate(self.game_speed)
+        elif key == arcade.key.DOWN:  # Decelerate game speed
+            self.game_speed = min(1 / 12, self.game_speed * 2)
+            self.set_update_rate(self.game_speed)
+
+    def close_game(self):
+        self.plot_rewards()
+        save_q_table(self.q_table, self.history)
+        arcade.close_window()
+
     def game_over(self, reason):
+        next_state = self.get_state()
+        self.update_q_table(next_state)
+        print(f"player position: {discretize(self.player.center_x)}, {discretize(self.player.center_y)}")
+        print(f"last action: {self.last_action}")
         print(f"Game Over: {reason}")
-        print(f"Total Reward for Episode {self.episode}: {self.total_reward}")
-        self.update_q_table(self.get_state())
+        print(f"Total Reward for Episode {self.episode}: {self.total_reward}")  # Affichage du total des récompenses
         self.reset_required = True
         self.episode += 1
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
@@ -79,28 +115,17 @@ class SpaceInvadersGame(arcade.Window):
         save_q_table(self.q_table, self.history)
 
     def reset(self):
+        self.epsilon = EPSILON
+        self.episode = 0
+        self.score = 0
+        self.reset_required = False
+        self.reward = 0
+        self.total_reward = 0  # Variable pour accumuler les récompenses
+        self.last_action = Action.DO_NOTHING
+        self.state = None
+        self.history = []
+        self.q_table = {}
         self.setup()
-
-    def on_key_press(self, key, modifiers):
-        if key == arcade.key.R:
-            self.reset()
-        elif key == arcade.key.Q:
-            self.close_game()
-        elif key == arcade.key.H:
-            self.history = []
-
-    def close_game(self):
-        self.plot_rewards()
-        arcade.close_window()
-
-    def plot_rewards(self):
-        window_size = 100
-        smoothed_history = np.convolve(self.history, np.ones(window_size) / window_size, mode='valid')
-        plt.plot(smoothed_history)
-        plt.xlabel("Épisode")
-        plt.ylabel("Récompense moyenne")
-        plt.title("Progression globale des Récompenses")
-        plt.show()
 
     def get_relative_position(self, obj_list, detection_range):
         filtered_objects = [obj for obj in obj_list if abs(obj.center_y - self.player.center_y) < detection_range]
@@ -197,10 +222,11 @@ class SpaceInvadersGame(arcade.Window):
             self.game_over("All enemies defeated")
 
     def on_draw(self):
-        arcade.start_render()
-        draw_grid()
-        self.highlight_targets()
-        self.draw_game_objects()
+        if self.display_mode:
+            arcade.start_render()
+            draw_grid()
+            self.highlight_targets()
+            self.draw_game_objects()
 
     def highlight_targets(self):
         nearest_enemy, _ = self.get_relative_position(self.enemy_list, ENEMY_DETECTION_RANGE)
@@ -233,18 +259,3 @@ class SpaceInvadersGame(arcade.Window):
                 bullet.center_y = enemy.center_y - BULLET_SPEED
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
-
-def discretize(value):
-    bin_size = SCREEN_WIDTH // NUM_BINS
-    index = int(value // bin_size)
-    if value % bin_size > 0.5 * bin_size:
-        index += 1
-    return index
-
-
-def draw_grid():
-    cell_size = SCREEN_WIDTH // NUM_BINS
-    for x in range(0, SCREEN_WIDTH + 1, cell_size):
-        arcade.draw_line(x, 0, x, SCREEN_HEIGHT, arcade.color.WHITE, 1)
-    for y in range(0, SCREEN_HEIGHT + 1, cell_size):
-        arcade.draw_line(0, y, SCREEN_WIDTH, y, arcade.color.WHITE, 1)
