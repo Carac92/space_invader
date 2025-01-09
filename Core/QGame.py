@@ -1,10 +1,8 @@
 import random
-import numpy as np
-from matplotlib import pyplot as plt
-import arcade
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import arcade
 from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
 from Entity.Player import Player
@@ -25,36 +23,34 @@ class DQN(nn.Module):
 
 class QSpaceInvadersGame(arcade.Window):
     def __init__(self):
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, "Space Invaders - IA avec Pénalités Ajustées")
-        self.gamma = None
-        self.batch_size = None
-        self.memory = None
-        self.optimizer = None
-        self.target_net = None
-        self.policy_net = None
-        self.output_dim = None
-        self.input_dim = None
-        self.history = None
-        self.state = None
-        self.last_action = None
-        self.total_reward = None
-        self.reward = None
-        self.reset_required = None
-        self.score = None
-        self.episode = None
-        self.epsilon = None
-        self.asteroid_list = None
-        self.enemy_bullet_list = None
-        self.enemy_list = None
-        self.bullet_list = None
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, "Space Invaders - DQN")
         self.player = None
+        self.bullet_list = None
+        self.enemy_list = None
+        self.enemy_bullet_list = None
+        self.asteroid_list = None
+        self.epsilon = None
+        self.episode = None
+        self.score = None
+        self.reset_required = None
+        self.total_reward = None
+        self.last_action = None
+        self.state = None
+        self.memory = None
+        self.history = None
+        self.input_dim = None
+        self.output_dim = None
+        self.policy_net = None
+        self.target_net = None
+        self.optimizer = None
+        self.batch_size = None
+        self.gamma = None
+        self.reward = None
         arcade.set_background_color(arcade.color.BLACK)
         self.set_update_rate(FRAME_RATE)
-        self.init_game_state()
-        self.init_dqn()
-        self.display_mode = DISPLAY_MODE  # Nouveau attribut pour le mode d'affichage
-
-    def init_game_state(self):
+        self.initialize_game_state()
+        self.initialize_dqn()
+    def initialize_game_state(self):
         self.player = None
         self.bullet_list = arcade.SpriteList()
         self.enemy_list = arcade.SpriteList()
@@ -66,21 +62,71 @@ class QSpaceInvadersGame(arcade.Window):
         self.reset_required = False
         self.reward = 0
         self.total_reward = 0
-        self.last_action = Action.DO_NOTHING
+        self.last_action = None
         self.state = None
+        self.memory = []
         self.history = []
 
-    def init_dqn(self):
-        self.input_dim = 4  # Example state dimensions (adjust as needed)
+    def initialize_dqn(self):
+        self.input_dim = 4  # Adjust as per state representation
         self.output_dim = len(Action)
         self.policy_net = DQN(self.input_dim, self.output_dim)
         self.target_net = DQN(self.input_dim, self.output_dim)
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=0.001)
-        self.memory = []
         self.batch_size = 32
         self.gamma = DISCOUNT_FACTOR
+
+    def setup(self):
+        self.initialize_game_state()
+        self.initialize_player()
+        self.initialize_enemies()
+
+    def initialize_player(self):
+        self.player = Player("images/player.png", 0.5)
+        self.player.center_x = ((NUM_BINS // 2) - 1) * BIN_SIZE + BIN_SIZE / 2
+        self.player.center_y = BIN_SIZE / 2
+        self.player.ammo = NUM_ENEMY_ROWS * NUM_ENEMY_COLS + AMMO_EXTRA
+
+    def initialize_enemies(self):
+        for row in range(NUM_ENEMY_ROWS):
+            for col in range(NUM_ENEMY_COLS):
+                enemy = Enemy("images/enemy.png", 0.5)
+                enemy.center_x = BIN_SIZE / 2 + col * BIN_SIZE
+                enemy.center_y = SCREEN_HEIGHT - BIN_SIZE / 2 - (row * BIN_SIZE)
+                enemy.change_x = ENEMY_SPEED
+                self.enemy_list.append(enemy)
+
+    def get_state(self):
+        _, enemy_rel_pos = self.get_relative_position(self.enemy_list, ENEMY_DETECTION_RANGE)
+        _, bullet_rel_pos = self.get_relative_position(self.enemy_bullet_list, ENEMY_BULLET_DETECTION_RANGE)
+        return torch.tensor([*enemy_rel_pos, *bullet_rel_pos], dtype=torch.float32)
+
+    def get_relative_position(self, obj_list, detection_range):
+        filtered_objects = [obj for obj in obj_list if abs(obj.center_y - self.player.center_y) < detection_range]
+        if filtered_objects:
+            nearest_obj = min(filtered_objects, key=lambda obj: ((obj.center_x - self.player.center_x) ** 2 + (obj.center_y - self.player.center_y) ** 2) ** 0.5)
+            relative_x = nearest_obj.center_x - self.player.center_x
+            relative_y = nearest_obj.center_y - self.player.center_y
+            return nearest_obj, (discretize(relative_x), discretize(relative_y))
+        return None, (99, 99)
+
+    def choose_action(self):
+        if random.random() < self.epsilon:
+            return random.choice(range(self.output_dim))
+        with torch.no_grad():
+            state = self.get_state().unsqueeze(0)
+            q_values = self.policy_net(state)
+            return q_values.argmax().item()
+
+    def perform_action(self, action):
+        if action == Action.MOVE_LEFT.value:
+            self.player.change_x = -PLAYER_SPEED
+        elif action == Action.MOVE_RIGHT.value:
+            self.player.change_x = PLAYER_SPEED
+        elif action == Action.SHOOT.value:
+            self.player.shoot(self.bullet_list)
 
     def remember(self, state, action, reward, next_state, done):
         self.memory.append((state, action, reward, next_state, done))
@@ -111,24 +157,6 @@ class QSpaceInvadersGame(arcade.Window):
     def update_target_network(self):
         self.target_net.load_state_dict(self.policy_net.state_dict())
 
-    def setup(self):
-        self.init_game_state()
-        self.player = Player("images/player.png", 0.5)
-        self.player.center_x = ((NUM_BINS // 2) - 1) * BIN_SIZE + BIN_SIZE / 2
-        self.player.center_y = BIN_SIZE / 2
-
-        self.init_enemies()
-        self.player.ammo = len(self.enemy_list) + AMMO_EXTRA
-
-    def init_enemies(self):
-        for row in range(NUM_ENEMY_ROWS):
-            for col in range(NUM_ENEMY_COLS):
-                enemy = Enemy("images/enemy.png", 0.5)
-                enemy.center_x = BIN_SIZE / 2 + col * BIN_SIZE
-                enemy.center_y = SCREEN_HEIGHT - BIN_SIZE / 2 - (row * BIN_SIZE)
-                enemy.change_x = ENEMY_SPEED
-                self.enemy_list.append(enemy)
-
     def game_over(self, reason):
         print(f"Game Over: {reason}")
         print(f"Total Reward for Episode {self.episode}: {self.total_reward}")
@@ -137,75 +165,8 @@ class QSpaceInvadersGame(arcade.Window):
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
         self.history.append(self.total_reward)
 
-    def reset(self):
-        self.setup()
-
-    def on_key_press(self, key, modifiers):
-        if key == arcade.key.R:
-            self.reset()
-        elif key == arcade.key.Q:
-            self.close_game()
-        elif key == arcade.key.D:  # Nouveau bouton pour afficher/masquer l'affichage
-            self.display_mode = not self.display_mode
-
-    def close_game(self):
-        self.plot_rewards()
-        exit(0)
-
-    def plot_rewards(self):
-        window_size = 100
-        smoothed_history = np.convolve(self.history, np.ones(window_size) / window_size, mode='valid')
-        plt.plot(smoothed_history)
-        plt.xlabel("Épisode")
-        plt.ylabel("Récompense moyenne")
-        plt.title("Progression globale des Récompenses")
-        plt.show()
-
-    def get_state(self):
-        _, enemy_rel_pos = self.get_relative_enemy_position()
-        _, bullet_rel_pos = self.get_relative_enemy_bullet_position()
-        return torch.tensor([*enemy_rel_pos, *bullet_rel_pos], dtype=torch.float32)
-
-    def get_relative_enemy_position(self):
-        if not self.enemy_list:
-            return None, (99, 99)
-        nearest_enemy = min(self.enemy_list, key=lambda e: self.euclidean_distance(e, self.player))
-        relative_x = nearest_enemy.center_x - self.player.center_x
-        relative_y = nearest_enemy.center_y - self.player.center_y
-        return nearest_enemy, (discretize(relative_x), discretize(relative_y))
-
-    def get_relative_enemy_bullet_position(self):
-        threatening_bullets = [bullet for bullet in self.enemy_bullet_list
-                               if abs(bullet.center_y - self.player.center_y) < 200]
-        if not threatening_bullets:
-            return None, (99, 99)
-        nearest_bullet = min(threatening_bullets, key=lambda b: self.euclidean_distance(b, self.player))
-        relative_x = nearest_bullet.center_x - self.player.center_x
-        relative_y = nearest_bullet.center_y - self.player.center_y
-        return nearest_bullet, (discretize(relative_x), discretize(relative_y))
-
-    def euclidean_distance(self, obj1, obj2):
-        return ((obj1.center_x - obj2.center_x) ** 2 + (obj1.center_y - obj2.center_y) ** 2) ** 0.5
-
-    def choose_action(self):
-        if random.random() < self.epsilon:
-            return random.choice(range(self.output_dim))
-        with torch.no_grad():
-            state = self.get_state().unsqueeze(0)
-            q_values = self.policy_net(state)
-            return q_values.argmax().item()
-
-    def perform_action(self, action):
-        if action == Action.MOVE_LEFT.value:
-            self.player.change_x = -PLAYER_SPEED
-        elif action == Action.MOVE_RIGHT.value:
-            self.player.change_x = PLAYER_SPEED
-        elif action == Action.SHOOT.value:
-            self.player.shoot(self.bullet_list)
-
     def on_update(self, delta_time):
         if self.reset_required:
-            self.reset_required = False
             self.setup()
             return
 
@@ -238,12 +199,11 @@ class QSpaceInvadersGame(arcade.Window):
 
     def handle_collisions(self):
         self.reward = ACTION_REWARD
-        self.handle_bullet_collisions()
-        self.handle_enemy_collisions()
-        self.handle_asteroid_collisions()
-        self.handle_player_collisions()
+        self.check_bullet_collisions()
+        self.check_player_collisions()
+        self.check_game_over_conditions()
 
-    def handle_bullet_collisions(self):
+    def check_bullet_collisions(self):
         for bullet in self.bullet_list:
             hit_list = arcade.check_for_collision_with_list(bullet, self.enemy_list)
             if hit_list:
@@ -253,24 +213,7 @@ class QSpaceInvadersGame(arcade.Window):
                     self.score += 1
                     self.reward += HIT_ENEMIES_REWARD
 
-    def handle_enemy_collisions(self):
-        for enemy in self.enemy_list:
-            if enemy.bottom + enemy.change_x < 0:
-                self.reward += LOOSE_REWARD
-                self.total_reward += self.reward
-                self.game_over("Enemies reached the base")
-                return
-
-    def handle_asteroid_collisions(self):
-        for bullet in self.bullet_list:
-            asteroid_hit_list = arcade.check_for_collision_with_list(bullet, self.asteroid_list)
-            if asteroid_hit_list:
-                bullet.remove_from_sprite_lists()
-                for asteroid in asteroid_hit_list:
-                    asteroid.take_damage()
-                    self.reward += HIT_ASTEROID_REWARD
-
-    def handle_player_collisions(self):
+    def check_player_collisions(self):
         for bullet in self.enemy_bullet_list:
             if arcade.check_for_collision(bullet, self.player):
                 self.reward += LOOSE_REWARD
@@ -278,34 +221,25 @@ class QSpaceInvadersGame(arcade.Window):
                 self.game_over("Player hit by enemy bullet")
                 return
 
+    def check_game_over_conditions(self):
         if not self.enemy_list:
             self.reward += WIN_REWARD
             self.total_reward += self.reward
             self.game_over("All enemies defeated")
 
     def on_draw(self):
-        if self.display_mode:
-            arcade.start_render()
-            self.draw_grid()
-            self.highlight_targets()
-            self.draw_game_objects()
-
-    def draw_grid(self):
-        cell_size = SCREEN_WIDTH // NUM_BINS
-        for x in range(0, SCREEN_WIDTH + 1, cell_size):
-            arcade.draw_line(x, 0, x, SCREEN_HEIGHT, arcade.color.WHITE, 1)
-        for y in range(0, SCREEN_HEIGHT + 1, cell_size):
-            arcade.draw_line(0, y, SCREEN_WIDTH, y, arcade.color.WHITE, 1)
+        arcade.start_render()
+        draw_grid()
+        self.highlight_targets()
+        self.draw_game_objects()
 
     def highlight_targets(self):
-        nearest_enemy, _ = self.get_relative_enemy_position()
-        nearest_bullet, _ = self.get_relative_enemy_bullet_position()
-
+        nearest_enemy, _ = self.get_relative_position(self.enemy_list, ENEMY_DETECTION_RANGE)
+        nearest_bullet, _ = self.get_relative_position(self.enemy_bullet_list, ENEMY_BULLET_DETECTION_RANGE)
         for enemy in self.enemy_list:
             enemy.color = arcade.color.WHITE
         if nearest_enemy:
             nearest_enemy.color = arcade.color.RED
-
         for bullet in self.enemy_bullet_list:
             bullet.color = arcade.color.WHITE
         if nearest_bullet:
@@ -330,6 +264,13 @@ class QSpaceInvadersGame(arcade.Window):
                 bullet.center_y = enemy.center_y - BULLET_SPEED
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
+
+def draw_grid():
+    cell_size = SCREEN_WIDTH // NUM_BINS
+    for x in range(0, SCREEN_WIDTH + 1, cell_size):
+        arcade.draw_line(x, 0, x, SCREEN_HEIGHT, arcade.color.WHITE, 1)
+    for y in range(0, SCREEN_HEIGHT + 1, cell_size):
+        arcade.draw_line(0, y, SCREEN_WIDTH, y, arcade.color.WHITE, 1)
 
 
 def discretize(value):

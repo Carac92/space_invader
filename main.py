@@ -1,14 +1,23 @@
 import arcade
-
 from Core.Game import SpaceInvadersGame
 from Core.QGame import QSpaceInvadersGame
 
-if __name__ == "__main__":
-    game = SpaceInvadersGame()
+def main():
+    print("Select the game mode:")
+    print("1. Space Invaders - Qtable")
+    print("2. Space Invaders with DQN")
+    choice = input("Enter the number of your choice: ")
+
+    if choice == "1":
+        game = SpaceInvadersGame()
+    elif choice == "2":
+        game = QSpaceInvadersGame()
+    else:
+        print("Invalid choice. Exiting...")
+        return
+
     game.setup()
     arcade.run()
 
-# if __name__ == "__main__":
-#     game = QSpaceInvadersGame()
-#     game.setup()
-#     arcade.run()
+if __name__ == "__main__":
+    main()
