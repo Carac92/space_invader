@@ -1,6 +1,6 @@
 import arcade
 from Core.Game import SpaceInvadersGame
-from Core.draft import SpaceInvadersDQN
+from Core.QGame import SpaceInvadersDQN
 
 
 def main():
