@@ -8,7 +8,7 @@ if __name__ == "__main__":
     game.setup()
     arcade.run()
 
-if __name__ == "__main__":
-    game = QSpaceInvadersGame()
-    game.setup()
-    arcade.run()
+# if __name__ == "__main__":
+#     game = QSpaceInvadersGame()
+#     game.setup()
+#     arcade.run()

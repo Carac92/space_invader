@@ -3,6 +3,7 @@ import pickle
 import random
 
 import arcade
+import numpy as np
 from matplotlib import pyplot as plt
 
 from Entity.Bullet import Bullet
@@ -52,12 +53,6 @@ class SpaceInvadersGame(arcade.Window):
                 enemy.center_y = SCREEN_HEIGHT - BIN_SIZE/2 - (row * BIN_SIZE)
                 enemy.change_x = ENEMY_SPEED
                 self.enemy_list.append(enemy)
-
-        """for col in range(8):
-            asteroid = Asteroid("images/asteroid.png", 1, ASTEROID_LIFE)
-            asteroid.center_x = 100 + col * 90
-            asteroid.center_y = SCREEN_HEIGHT // 2
-            self.asteroid_list.append(asteroid)"""
 
         total_enemies = NUM_ENEMY_ROWS * NUM_ENEMY_COLS
         self.player.ammo = total_enemies + AMMO_EXTRA
@@ -165,19 +160,6 @@ class SpaceInvadersGame(arcade.Window):
             if abs(enemy.center_x - self.player.center_x) <= ENEMY_DETECTION_RANGE:
                 return 1
         return 0
-
-    """def detect_enemy_bullets(self):
-        min_distance = ENEMY_BULLET_DETECTION_RANGE + 1
-        for bullet in self.enemy_bullet_list:
-            if bullet.center_y < self.player.center_y + 150:
-                distance = bullet.center_x - self.player.center_x
-                if abs(distance) <= ENEMY_BULLET_DETECTION_RANGE and abs(distance) < abs(min_distance):
-                    min_distance = distance
-        if abs(min_distance) <= ENEMY_BULLET_DETECTION_RANGE:
-            # Discrétiser la distance en bins
-            return self.discretize(min_distance)
-        else:
-            return 99  # Aucune menace immédiate"""
 
     def choose_action(self):
         #enleve la possibilité de tirer si le cooldown n'est pas à 0
