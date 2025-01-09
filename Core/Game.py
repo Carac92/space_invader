@@ -15,6 +15,7 @@ class SpaceInvadersGame(arcade.Window):
     def __init__(self):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, "Space Invaders - IA avec Pénalités Ajustées")
         arcade.set_background_color(arcade.color.BLACK)
+        self.set_update_rate(FRAME_RATE)
         self.player = None
         self.bullet_list = None
         self.enemy_list = None
