@@ -38,7 +38,7 @@ class SpaceInvadersGame(arcade.Window):
 
     def setup(self):
         self.player = Player("images/player.png", 0.5)
-        self.player.center_x = (NUM_BINS//2) * BIN_SIZE + BIN_SIZE / 2
+        self.player.center_x = ((NUM_BINS//2) - 1) * BIN_SIZE + BIN_SIZE / 2
         self.player.center_y = BIN_SIZE / 2
 
         self.bullet_list = arcade.SpriteList()
@@ -222,9 +222,10 @@ class SpaceInvadersGame(arcade.Window):
         self.player.update()
         self.player.update_cooldown()
         self.bullet_list.update()
-        game_over_by_enemy_out_of_field = self.enemy_list.update()
-        if game_over_by_enemy_out_of_field:
-            self.game_over("Enemies reached the base")
+        for enemy in self.enemy_list:
+            if enemy.bottom + enemy.change_x < 0:
+                self.game_over("Enemies reached the base")
+        self.enemy_list.update()
 
         self.enemy_bullet_list.update()
         self.asteroid_list.update()
@@ -330,8 +331,8 @@ class SpaceInvadersGame(arcade.Window):
             if random.random() < ENEMY_SHOOT_PROBABILITY:
                 bullet = Bullet("images/enemy_bullet.png", 1)
                 bullet.center_x = enemy.center_x
-                bullet.center_y = 549
-                bullet.top = enemy.bottom
+                bullet.center_y = enemy.center_y - BULLET_SPEED
+                #bullet.top = enemy.bottom
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
 
