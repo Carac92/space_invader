@@ -36,7 +36,6 @@ class SpaceInvadersGame(arcade.Window):
         self.q_table = {}
         self.history = []
         self.load_q_table()
-
     def setup(self):
         self.player = Player("images/player.png", 0.5)
         self.player.center_x = ((NUM_BINS//2) - 1) * BIN_SIZE + BIN_SIZE / 2
@@ -116,15 +115,6 @@ class SpaceInvadersGame(arcade.Window):
         elif key == arcade.key.H:
             self.history = []
 
-
-    def discretize(self, value):
-        bin_size = SCREEN_WIDTH // NUM_BINS
-        index = int(value // bin_size)
-        # prends en compte si le x est plutot vers la droite, ou plutot vers la gauche
-        if value%bin_size > 0.5 * bin_size:
-            index += 1
-        return index
-
     """def get_relative_enemy_position(self):
         if self.enemy_list:
             nearest_enemy = min(self.enemy_list, key=lambda e: e.center_x - self.player.center_x)
@@ -138,10 +128,10 @@ class SpaceInvadersGame(arcade.Window):
     def get_relative_enemy_position(self):
         if self.enemy_list:
             nearest_enemy = min(self.enemy_list, key=lambda e: ((e.center_x - self.player.center_x) ** 2 + (
-                        e.center_y - self.player.center_y) ** 2) ** 0.5)
+                    e.center_y - self.player.center_y) ** 2) ** 0.5)
             relative_x = nearest_enemy.center_x - self.player.center_x
             relative_y = nearest_enemy.center_y - self.player.center_y
-            return nearest_enemy, (self.discretize(relative_x), self.discretize(relative_y))
+            return nearest_enemy, (discretize(relative_x), discretize(relative_y))
         else:
             return None, (99, 99)
 
@@ -152,18 +142,18 @@ class SpaceInvadersGame(arcade.Window):
         if threatening_bullets:
             #division euclidienne pour prendre en compte x et y
             nearest_bullet = min(threatening_bullets, key=lambda b: ((b.center_x - self.player.center_x) ** 2 + (
-                        b.center_y - self.player.center_y) ** 2) ** 0.5)
+                    b.center_y - self.player.center_y) ** 2) ** 0.5)
             relative_x = nearest_bullet.center_x - self.player.center_x
             relative_y = nearest_bullet.center_y - self.player.center_y
             # Discrétiser les positions relatives
-            relative_x_bin = self.discretize(relative_x)
-            relative_y_bin = self.discretize(relative_y)
+            relative_x_bin = discretize(relative_x)
+            relative_y_bin = discretize(relative_y)
             return nearest_bullet,(relative_x_bin, relative_y_bin)
         else:
             return None,(99, 99)
 
     def get_state(self):
-        player_bin = self.discretize(self.player.center_x)
+        player_bin = discretize(self.player.center_x)
         asteroid_detected = self.detect_asteroids()
         enemy_detected = self.detect_enemies()
         bullet_distance_bin = self.detect_enemy_bullets()
@@ -194,7 +184,7 @@ class SpaceInvadersGame(arcade.Window):
                     min_distance = distance
         if abs(min_distance) <= ENEMY_BULLET_DETECTION_RANGE:
             # Discrétiser la distance en bins
-            return self.discretize(min_distance)
+            return discretize(min_distance)
         else:
             return 99  # Aucune menace immédiate
 
@@ -237,7 +227,6 @@ class SpaceInvadersGame(arcade.Window):
         td_error = td_target - q_current
         self.q_table[(self.state, self.last_action.value)] = q_current + LEARNING_RATE * td_error
 
-    #A voir pour utiliser delta_time et limiter le nombre d update de la Q_table
     def on_update(self, delta_time):
         if self.reset_required:
             self.setup()
@@ -320,6 +309,7 @@ class SpaceInvadersGame(arcade.Window):
 
         self.total_reward += self.reward  # Mise à jour du total des récompenses
 
+    #A voir pour utiliser delta_time et limiter le nombre d update de la Q_table
     def on_draw(self):
         if DISPLAY_MODE:
             arcade.start_render()
@@ -357,7 +347,6 @@ class SpaceInvadersGame(arcade.Window):
             arcade.draw_text(f"Total Reward: {self.total_reward}", 10, 110, arcade.color.WHITE, 14)
             arcade.draw_text(f"Epsilon(exploration rate): {self.epsilon}", 10, 50, arcade.color.WHITE, 14)
 
-
     def enemy_shoot(self):
         for enemy in self.enemy_list:
             if random.random() < ENEMY_SHOOT_PROBABILITY:
@@ -367,6 +356,7 @@ class SpaceInvadersGame(arcade.Window):
                 #bullet.top = enemy.bottom
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
+
 
     def save_q_table(self):
         with open("q_table.pkl", "wb") as f:
@@ -385,3 +375,19 @@ class SpaceInvadersGame(arcade.Window):
                 )
         else:
             self.q_table = {}
+
+def discretize(value):
+    bin_size = SCREEN_WIDTH // NUM_BINS
+    index = int(value // bin_size)
+    # prends en compte si le x est plutot vers la droite, ou plutot vers la gauche
+    if value%bin_size > 0.5 * bin_size:
+        index += 1
+    return index
+
+
+
+
+
+
+
+
