@@ -225,6 +225,8 @@ class SpaceInvadersGame(arcade.Window):
         self.bullet_list.update()
         for enemy in self.enemy_list:
             if enemy.bottom + enemy.change_x < 0:
+                self.reward += LOOSE_REWARD
+                self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
                 self.game_over("Enemies reached the base")
         self.enemy_list.update()
 

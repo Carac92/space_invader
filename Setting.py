@@ -12,7 +12,7 @@ SCREEN_WIDTH = 400
 SCREEN_HEIGHT = 400
 NUM_BINS = 10          # Nombre de bins pour la discrétisation de l'état
 BIN_SIZE = SCREEN_WIDTH / NUM_BINS
-FRAME_RATE = 1 / 12
+FRAME_RATE = 1 / 1200
 
 # Joueur et mouvements
 PLAYER_SPEED = BIN_SIZE
@@ -28,15 +28,11 @@ NUM_ENEMY_ROWS = 1
 NUM_ENEMY_COLS = 5
 ASTEROID_LIFE = 0
 
-# Récompenses et pénalités
-WIN_REWARD = 10000
-LOOSE_REWARD = -10000
-
 # Apprentissage par renforcement
-LEARNING_RATE = 0.00025
+LEARNING_RATE = 0.95
 DISCOUNT_FACTOR = 0.98
-EPSILON = 1.0          # Taux d'exploration initial
-EPSILON_MIN = 0.01     # Taux d'exploration minimum
+EPSILON = 0          # Taux d'exploration initial
+EPSILON_MIN = 0    # Taux d'exploration minimum
 EPSILON_DECAY = 0.99   # Facteur de décroissance d'EPSILON
 
 # Détection
@@ -48,7 +44,10 @@ ENEMY_BULLET_DETECTION_RANGE = 150
 AMMO_EXTRA = 10000000 # Détermine le nombre d'actions à partir de l'énumération Action
 
 
-# Récompenses
+# Récompenses et pénalités
+WIN_REWARD = 100
+LOOSE_REWARD = -100
+
 HIT_ASTEROID_REWARD = 0
 HIT_NOTHING_REWARD = 0
 ACTION_REWARD = -1
