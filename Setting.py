@@ -39,7 +39,7 @@ EPSILON_DECAY = 0.99   # Facteur de décroissance d'EPSILON
 # Détection
 ASTEROID_DETECTION_RANGE = 100
 ENEMY_DETECTION_RANGE = 200
-ENEMY_BULLET_DETECTION_RANGE = 150
+ENEMY_BULLET_DETECTION_RANGE = 400
 
 # Divers
 AMMO_EXTRA = 10000000 # Détermine le nombre d'actions à partir de l'énumération Action
