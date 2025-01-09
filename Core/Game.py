@@ -3,7 +3,12 @@ import pickle
 import random
 
 import arcade
-import matplotlib.pyplot as plt
+from matplotlib import pyplot as plt
+
+from Entity.Bullet import Bullet
+from Entity.Ennemy import Enemy
+from Entity.Player import Player
+from Setting import *
 
 
 class SpaceInvadersGame(arcade.Window):
@@ -340,10 +345,3 @@ class SpaceInvadersGame(arcade.Window):
                 self.q_table, self.history = pickle.load(f)
         else:
             self.q_table = {}
-
-
-if __name__ == "__main__":
-    game = SpaceInvadersGame()
-    game.setup()
-    arcade.run()
-    plt.show()
