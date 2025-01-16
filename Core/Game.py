@@ -1,4 +1,3 @@
-
 import os
 import pickle
 import random
@@ -12,6 +11,7 @@ from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
 from Entity.Player import Player
 from Setting import *
+
 
 class SpaceInvadersGame(arcade.Window):
     def __init__(self):
@@ -65,12 +65,11 @@ class SpaceInvadersGame(arcade.Window):
     def game_over(self, reason):
         next_state = self.get_state()
         self.update_q_table(next_state)
-        print(
-            f"player position: {self.discretize(self.player.center_x)}, {self.discretize(self.player.center_y)}")
-        print(f"last action: {self.last_action}")
-        print(f"Game Over: {reason}")
-        print(
-            f"Total Reward for Episode {self.episode}: {self.total_reward}")  # Affichage du total des récompenses
+        if DISPLAY_MODE:
+            print(f"player position: {self.discretize(self.player.center_x)}, {self.discretize(self.player.center_y)}")
+            print(f"last action: {self.last_action}")
+            print(f"Game Over: {reason}")
+            print(f"Total Reward for Episode {self.episode}: {self.total_reward}")  # Affichage du total des récompenses
         self.reset_required = True
         self.episode += 1
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
@@ -91,8 +90,10 @@ class SpaceInvadersGame(arcade.Window):
         self.setup()
 
     def on_key_press(self, key, modifiers):
+        #Reset history et q_table
         if key == arcade.key.R:
             self.reset()
+        #Quitte le jeu
         elif key == arcade.key.Q:
             self.close()
             window_size = 100
@@ -108,6 +109,7 @@ class SpaceInvadersGame(arcade.Window):
             plt.title("Progression globale des Récompenses")
             plt.show()
             exit(0)
+        #Efface l'history
         elif key == arcade.key.H:
             self.history = []
         elif key == arcade.key.UP:  # Accelerate game speed
@@ -121,15 +123,15 @@ class SpaceInvadersGame(arcade.Window):
         bin_size = SCREEN_WIDTH // NUM_BINS
         index = int(value // bin_size)
         # prends en compte si le x est plutot vers la droite, ou plutot vers la gauche
-        if value % bin_size > 0.5 * bin_size:
+        if value%bin_size > 0.5 * bin_size:
             index += 1
         return index
 
     def get_relative_enemy_position(self):
         if self.enemy_list:
-            nearest_enemy = min(self.enemy_list,
-                                key=lambda e: ((e.center_x - self.player.center_x) ** 2 + (
-                                        e.center_y - self.player.center_y) ** 2) ** 0.5)
+            #utilise la distance euclidienne pour définir l'ennemi le plus proche
+            nearest_enemy = min(self.enemy_list, key=lambda e: ((e.center_x - self.player.center_x) ** 2 + (
+                        e.center_y - self.player.center_y) ** 2) ** 0.5)
             relative_x = nearest_enemy.center_x - self.player.center_x
             relative_y = nearest_enemy.center_y - self.player.center_y
             return nearest_enemy, (self.discretize(relative_x), self.discretize(relative_y))
@@ -137,28 +139,57 @@ class SpaceInvadersGame(arcade.Window):
             return None, (99, 99)
 
     def get_relative_enemy_bullet_position(self):
-        # pour ne prendre en compte que les bullets qui sont a moins de ENEMY_BULLET_DETECTION_RANGE pxl de hauteur du joueur
+        #pour ne prendre en compte que les bullets qui sont a moins de ENEMY_BULLET_DETECTION_RANGE pxl de hauteur du joueur
         threatening_bullets = [bullet for bullet in self.enemy_bullet_list if
                                abs(bullet.center_y - self.player.center_y) < ENEMY_BULLET_DETECTION_RANGE]
         if threatening_bullets:
-            # division euclidienne pour prendre en compte x et y
-            nearest_bullet = min(threatening_bullets,
-                                 key=lambda b: ((b.center_x - self.player.center_x) ** 2 + (
-                                         b.center_y - self.player.center_y) ** 2) ** 0.5)
+            #division euclidienne pour prendre en compte x et y
+            nearest_bullet = min(threatening_bullets, key=lambda b: ((b.center_x - self.player.center_x) ** 2 + (
+                        b.center_y - self.player.center_y) ** 2) ** 0.5)
             relative_x = nearest_bullet.center_x - self.player.center_x
             relative_y = nearest_bullet.center_y - self.player.center_y
-            # Discrétiser les positions relatives
-            relative_x_bin = self.discretize(relative_x)
-            relative_y_bin = self.discretize(relative_y)
-            return nearest_bullet, (relative_x_bin, relative_y_bin)
+            return nearest_bullet,(self.discretize(relative_x), self.discretize(relative_y))
         else:
-            return None, (99, 99)
+            return None,(99, 99)
+
+    def get_relative_two_enemy_bullet_position(self):
+        closest_bullets = []
+        #pour ne prendre en compte que les bullets qui sont a moins de ENEMY_BULLET_DETECTION_RANGE pxl de hauteur du joueur
+        threatening_bullets = [bullet for bullet in self.enemy_bullet_list if
+                               abs(bullet.center_y - self.player.center_y) < ENEMY_BULLET_DETECTION_RANGE]
+        if threatening_bullets:
+            # Trier les balles par leur distance au joueur, en ordre croissant
+            sorted_bullets = sorted(threatening_bullets, key=lambda b: ((b.center_x - self.player.center_x) ** 2 + (
+                    b.center_y - self.player.center_y) ** 2) ** 0.5)
+
+            # Vérifiez s'il y a au moins deux balles pour obtenir la deuxième la plus proche
+            if len(sorted_bullets) > 1:
+                nearest_bullet = sorted_bullets[0]  # La balle la plus proche
+                second_nearest_bullet = sorted_bullets[1]  # La deuxième plus proche
+            else:
+                nearest_bullet = sorted_bullets[0] if sorted_bullets else None
+                second_nearest_bullet = None
+
+            relative_nearest_x = nearest_bullet.center_x - self.player.center_x
+            relative_nearest_y = nearest_bullet.center_y - self.player.center_y
+            relative_second_nearest_x = (second_nearest_bullet.center_x - self.player.center_x) if second_nearest_bullet else None
+            relative_second_nearest_y = (second_nearest_bullet.center_y - self.player.center_y) if second_nearest_bullet else None
+            discretize_relative_second_nearest_x = self.discretize(relative_second_nearest_x) if relative_second_nearest_x else 99
+            discretize_relative_second_nearest_y = self.discretize(relative_second_nearest_y) if relative_second_nearest_y else 99
+            return nearest_bullet, second_nearest_bullet,(self.discretize(relative_nearest_x), self.discretize(relative_nearest_y)),(discretize_relative_second_nearest_x, discretize_relative_second_nearest_y)
+
+        else:
+            return None,None,(99, 99),(99, 99)
 
     def get_state(self):
-        _, enemy_rel_pos = self.get_relative_enemy_position()
-        _, bullet_rel_pos = self.get_relative_enemy_bullet_position()
-        state = (enemy_rel_pos, bullet_rel_pos)
-        return state
+        _,enemy_rel_pos = self.get_relative_enemy_position()
+        if LEARNING_MODE == StateNumberBullets.SINGLE:
+            _,bullet_rel_pos = self.get_relative_enemy_bullet_position()
+            return enemy_rel_pos,bullet_rel_pos
+        elif LEARNING_MODE == StateNumberBullets.DOUBLE:
+            _,_,closest_bullet_rel_pos,second_closest_bullet_rel_pos = self.get_relative_two_enemy_bullet_position()
+            state = (enemy_rel_pos,closest_bullet_rel_pos,second_closest_bullet_rel_pos)
+            return state
 
     def detect_asteroids(self):
         for asteroid in self.asteroid_list:
@@ -166,15 +197,8 @@ class SpaceInvadersGame(arcade.Window):
                 return 1
         return 0
 
-    def detect_enemies(self):
-        for enemy in self.enemy_list:
-            if abs(enemy.center_x - self.player.center_x) <= ENEMY_DETECTION_RANGE:
-                return 1
-        return 0
-
-
     def choose_action(self):
-        # enleve la possibilité de tirer si le cooldown n'est pas à 0
+        #enleve la possibilité de tirer si le cooldown n'est pas à 0
         if self.player.cooldown > 0:
             valid_actions = [action for action in Action if action != Action.SHOOT]
         else:
@@ -184,11 +208,11 @@ class SpaceInvadersGame(arcade.Window):
             return random.choice(valid_actions)
         else:
             q_values = [self.q_table.get((self.state, action), 0) for action in valid_actions]
-            # print("tab: " + str(q_values))
+            #print("tab: " + str(q_values))
             max_value = max(q_values)
-            # print("max: " + str(max_value))
-            # pour randomiser au cas où il y ai plusieurs actions avec un valeur similaire
-            # par ex, les 4 à 0 car pas tester. Ca evite d'avoir toujours les memes actions
+            #print("max: " + str(max_value))
+            #pour randomiser au cas où il y ai plusieurs actions avec un valeur similaire
+            #par ex, les 4 à 0 car pas tester. Ca evite d'avoir toujours les memes actions
             max_actions = [action for action, q in zip(valid_actions, q_values) if q == max_value]
             return random.choice(max_actions)
 
@@ -205,14 +229,14 @@ class SpaceInvadersGame(arcade.Window):
     def update_q_table(self, next_state):
         if self.last_action == Action.SHOOT and self.player.cooldown > 0:
             return
-        # recupere la valeur actuelle du state, 0 si elle n'existe pas
+        #recupere la valeur actuelle du state, 0 si elle n'existe pas
         q_current = self.q_table.get((self.state, self.last_action), 0)
         q_next = max([self.q_table.get((next_state, action), 0) for action in Action])
         td_target = self.reward + DISCOUNT_FACTOR * q_next
         td_error = td_target - q_current
         self.q_table[(self.state, self.last_action)] = q_current + LEARNING_RATE * td_error
 
-    # A voir pour utiliser delta_time et limiter le nombre d update de la Q_table
+    #A voir pour utiliser delta_time et limiter le nombre d update de la Q_table
     def on_update(self, delta_time):
         if self.reset_required:
             self.setup()
@@ -252,7 +276,7 @@ class SpaceInvadersGame(arcade.Window):
                     self.score += 1
                     self.reward += HIT_ENEMIES_REWARD  # Récompense pour toucher un ennemi
 
-        # Chaque action fait perdre 1 point pour que l IA essaie de finir le plus vite possible
+        #Chaque action fait perdre 1 point pour que l IA essaie de finir le plus vite possible
         self.reward += ACTION_REWARD
 
         # Collision des missiles du joueur avec les astéroïdes
@@ -280,12 +304,14 @@ class SpaceInvadersGame(arcade.Window):
                 self.game_over("Player hit by enemy bullet")
                 return  # Terminer la mise à jour pour éviter des erreurs
 
+
         # Vérifier la fin de l'épisode si tous les ennemis sont vaincus
         if len(self.enemy_list) == 0:
             self.reward += WIN_REWARD  # Grande récompense pour gagner le jeu
             self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
             self.game_over("All enemies defeated")
             return  # Terminer la mise à jour
+
 
         next_state = self.get_state()
         self.update_q_table(next_state)
@@ -304,20 +330,29 @@ class SpaceInvadersGame(arcade.Window):
             for y in range(0, SCREEN_HEIGHT + 1, cell_size):
                 arcade.draw_line(0, y, SCREEN_WIDTH, y, arcade.color.WHITE, 1)
 
-            # get nearest enemy
+            #get nearest enemy
             nearest_enemy, _ = self.get_relative_enemy_position()
-            # reset color of all enemies
+            #reset color of all enemies
             for enemy in self.enemy_list:
                 enemy.color = arcade.color.WHITE
-            # color nearest enemy in red
+            #color nearest enemy in red
             if nearest_enemy:
                 nearest_enemy.color = arcade.color.RED
 
-            nearest_bullet, _ = self.get_relative_enemy_bullet_position()
-            for bullet in self.enemy_bullet_list:
-                bullet.color = arcade.color.WHITE
-            if nearest_bullet:
-                nearest_bullet.color = arcade.color.RED
+            if LEARNING_MODE == StateNumberBullets.SINGLE:
+                nearest_bullet, _ = self.get_relative_enemy_bullet_position()
+                for bullet in self.enemy_bullet_list:
+                    bullet.color = arcade.color.WHITE
+                if nearest_bullet:
+                    nearest_bullet.color = arcade.color.RED
+            elif LEARNING_MODE == StateNumberBullets.DOUBLE:
+                nearest_bullet, second_nearest_bullet, _, _ = self.get_relative_two_enemy_bullet_position()
+                for bullet in self.enemy_bullet_list:
+                    bullet.color = arcade.color.WHITE
+                if nearest_bullet:
+                    nearest_bullet.color = arcade.color.RED
+                if second_nearest_bullet:
+                    second_nearest_bullet.color = arcade.color.RED
 
             self.player.draw()
             self.bullet_list.draw()
@@ -325,11 +360,11 @@ class SpaceInvadersGame(arcade.Window):
             self.enemy_bullet_list.draw()
             self.asteroid_list.draw()
             arcade.draw_text(f"Score: {self.score}", 10, 20, arcade.color.WHITE, 14)
-            # arcade.draw_text(f"Ammo: {self.player.ammo}", 10, 50, arcade.color.WHITE, 14)
+            #arcade.draw_text(f"Ammo: {self.player.ammo}", 10, 50, arcade.color.WHITE, 14)
             arcade.draw_text(f"Episode: {self.episode}", 10, 80, arcade.color.WHITE, 14)
             arcade.draw_text(f"Total Reward: {self.total_reward}", 10, 110, arcade.color.WHITE, 14)
-            arcade.draw_text(f"Epsilon(exploration rate): {self.epsilon}", 10, 50, arcade.color.WHITE,
-                             14)
+            arcade.draw_text(f"Epsilon(exploration rate): {self.epsilon}", 10, 50, arcade.color.WHITE, 14)
+
 
     def enemy_shoot(self):
         for enemy in self.enemy_list:
@@ -337,7 +372,7 @@ class SpaceInvadersGame(arcade.Window):
                 bullet = Bullet("images/enemy_bullet.png", 1)
                 bullet.center_x = enemy.center_x
                 bullet.center_y = enemy.center_y - BULLET_SPEED
-                # bullet.top = enemy.bottom
+                #bullet.top = enemy.bottom
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
 
@@ -349,5 +384,19 @@ class SpaceInvadersGame(arcade.Window):
         if os.path.exists("q_table.pkl"):
             with open("q_table.pkl", "rb") as f:
                 self.q_table, self.history = pickle.load(f)
+                printed = False
+                for tuple in self.q_table.keys():
+
+                    if not printed:
+                        print(str(tuple),":",self.q_table[tuple])
+                        printed = True
+            """for tuple in self.q_table.keys():
+                if tuple[0][0][1] == 1:
+                    print(
+                        "closest E: " + str(tuple[0][0]) + ", " +
+                        "closest B: " + str(tuple[0][0]) + ", " +
+                        "Action: " + str(tuple[1]) + ", " +
+                        "Reward: " + str(self.q_table[tuple])
+                    )"""
         else:
             self.q_table = {}
