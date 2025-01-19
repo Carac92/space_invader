@@ -7,13 +7,19 @@ class Action(Enum):
     MOVE_RIGHT = 2
     SHOOT = 3
 
+class GameMode(Enum):
+    AI_MODE = 0
+    HUMAN_MODE = 1
+
 #Indique si le state prend en compte 1 missile ou 2 missiles
 class StateNumberBullets(Enum):
     SINGLE = 1
     DOUBLE = 2
 
 #True pour afficher les logs et l'interface graphique
-DISPLAY_MODE = False
+DISPLAY_MODE = True
+LEARNING_MODE = StateNumberBullets.DOUBLE
+GAME_MODE = GameMode.AI_MODE
 
 SCREEN_WIDTH = 400
 SCREEN_HEIGHT = 600

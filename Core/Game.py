@@ -6,6 +6,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import arcade
+from orca.eventsynthesizer import activateActionOn
 
 from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
@@ -17,6 +18,7 @@ class SpaceInvadersGame(arcade.Window):
     def __init__(self):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, "Space Invaders - IA avec Pénalités Ajustées")
         self.game_speed = FRAME_RATE
+        self.display_mode = DISPLAY_MODE
         arcade.set_background_color(arcade.color.BLACK)
         self.set_update_rate(self.game_speed)
         self.player = None
@@ -36,6 +38,7 @@ class SpaceInvadersGame(arcade.Window):
         self.q_table = {}
         self.history = []
         self.load_q_table()
+        self.game_mode = GAME_MODE
 
     def setup(self):
         self.player = Player("images/player.png", 0.5)
@@ -63,18 +66,19 @@ class SpaceInvadersGame(arcade.Window):
         self.total_reward = 0  # Réinitialisation du total des récompenses
 
     def game_over(self, reason):
-        next_state = self.get_state()
-        self.update_q_table(next_state)
-        if DISPLAY_MODE:
+        if self.display_mode:
             print(f"player position: {self.discretize(self.player.center_x)}, {self.discretize(self.player.center_y)}")
             print(f"last action: {self.last_action}")
             print(f"Game Over: {reason}")
             print(f"Total Reward for Episode {self.episode}: {self.total_reward}")  # Affichage du total des récompenses
         self.reset_required = True
         self.episode += 1
-        self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
-        self.history.append(self.total_reward)
-        self.save_q_table()
+        if self.game_mode == GameMode.AI_MODE:
+            next_state = self.get_state()
+            self.update_q_table(next_state)
+            self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
+            self.history.append(self.total_reward)
+            self.save_q_table()
 
     def reset(self):
         self.epsilon = EPSILON
@@ -89,10 +93,27 @@ class SpaceInvadersGame(arcade.Window):
         self.q_table = {}
         self.setup()
 
+    """
+    R: Reset history et q_table
+    H: Reset history
+    P: Print la q-table (1 fois)
+    D: Active/Desactive les logs et l'affichage graphique
+    UP: Accelere le game speed par 2
+    DOWN: Divise le game speed par 2
+    SPACE: Passe du mode Player au mode IA ou inversement
+    LEFT: (Player mode) Deplace le vaisseau sur la gauche
+    RIGHT: (Player mode) Deplace le vaisseau sur la droite
+    Z: (Player mode) Tire un missile si le cooldown est à 0
+    """
+
     def on_key_press(self, key, modifiers):
         #Reset history et q_table
         if key == arcade.key.R:
             self.reset()
+        #Print q_table 1 fois
+        elif key == arcade.key.P:
+            for _tuple in self.q_table.keys():
+                print(str(_tuple), ":", self.q_table[_tuple])
         #Quitte le jeu
         elif key == arcade.key.Q:
             self.close()
@@ -112,12 +133,29 @@ class SpaceInvadersGame(arcade.Window):
         #Efface l'history
         elif key == arcade.key.H:
             self.history = []
-        elif key == arcade.key.UP:  # Accelerate game speed
+        #Active ou desactive l'affichage
+        elif key == arcade.key.D:
+            self.display_mode = not self.display_mode
+            arcade.start_render()
+        # Accelere game speed
+        elif key == arcade.key.UP:
             self.game_speed = max(1 / 4400, self.game_speed / 2)
             self.set_update_rate(self.game_speed)
-        elif key == arcade.key.DOWN:  # Decelerate game speed
+        # Decelere game speed
+        elif key == arcade.key.DOWN:
             self.game_speed = min(1 / 12, self.game_speed * 2)
             self.set_update_rate(self.game_speed)
+        #Si en mode Player, débloque les touches de déplacements et de tir
+        if self.game_mode == GameMode.HUMAN_MODE:
+            if key == arcade.key.LEFT:
+                self.perform_action(Action.MOVE_LEFT)
+            if key == arcade.key.RIGHT:
+                self.perform_action(Action.MOVE_RIGHT)
+            if key == arcade.key.Z:
+                self.perform_action(Action.SHOOT)
+        #Passe du mode Player au mode IA et inversement
+        if key == arcade.key.SPACE:
+            self.game_mode = GameMode.HUMAN_MODE if self.game_mode == GameMode.AI_MODE else GameMode.AI_MODE
 
     def discretize(self, value):
         bin_size = SCREEN_WIDTH // NUM_BINS
@@ -227,6 +265,8 @@ class SpaceInvadersGame(arcade.Window):
             pass
 
     def update_q_table(self, next_state):
+        if self.game_mode == GameMode.HUMAN_MODE:
+            return
         if self.last_action == Action.SHOOT and self.player.cooldown > 0:
             return
         #recupere la valeur actuelle du state, 0 si elle n'existe pas
@@ -243,18 +283,20 @@ class SpaceInvadersGame(arcade.Window):
             self.reset_required = False
             return
 
-        self.state = self.get_state()
-        self.last_action = self.choose_action()
-        self.perform_action(self.last_action)
+        if self.game_mode == GameMode.AI_MODE:
+            self.state = self.get_state()
+            self.last_action = self.choose_action()
+            self.perform_action(self.last_action)
 
         self.player.update()
         self.player.update_cooldown()
         self.bullet_list.update()
         for enemy in self.enemy_list:
-            if enemy.bottom + enemy.change_x < 0:
-                self.reward += LOOSE_REWARD
-                self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
-                self.game_over("Enemies reached the base")
+            if enemy.center_x + enemy.change_x < 0 or enemy.center_x + enemy.change_x > NUM_BINS -1:
+                if enemy.center_y - ENEMY_DROP_SPEED < 0:
+                    self.reward += LOOSE_REWARD
+                    self.total_reward += self.reward  # Mise à jour du total des récompenses avant la fin
+                    self.game_over("Enemies reached the base")
         self.enemy_list.update()
 
         self.enemy_bullet_list.update()
@@ -320,7 +362,7 @@ class SpaceInvadersGame(arcade.Window):
         self.total_reward += self.reward  # Mise à jour du total des récompenses
 
     def on_draw(self):
-        if DISPLAY_MODE:
+        if self.display_mode:
             arcade.start_render()
 
             # Dessiner la grille
@@ -359,7 +401,7 @@ class SpaceInvadersGame(arcade.Window):
             self.enemy_list.draw()
             self.enemy_bullet_list.draw()
             self.asteroid_list.draw()
-            arcade.draw_text(f"Score: {self.score}", 10, 20, arcade.color.WHITE, 14)
+            arcade.draw_text(f"FPS: {1/self.game_speed}", 10, 20, arcade.color.WHITE, 14)
             #arcade.draw_text(f"Ammo: {self.player.ammo}", 10, 50, arcade.color.WHITE, 14)
             arcade.draw_text(f"Episode: {self.episode}", 10, 80, arcade.color.WHITE, 14)
             arcade.draw_text(f"Total Reward: {self.total_reward}", 10, 110, arcade.color.WHITE, 14)
@@ -384,12 +426,6 @@ class SpaceInvadersGame(arcade.Window):
         if os.path.exists("q_table.pkl"):
             with open("q_table.pkl", "rb") as f:
                 self.q_table, self.history = pickle.load(f)
-                printed = False
-                for tuple in self.q_table.keys():
-
-                    if not printed:
-                        print(str(tuple),":",self.q_table[tuple])
-                        printed = True
             """for tuple in self.q_table.keys():
                 if tuple[0][0][1] == 1:
                     print(

@@ -118,6 +118,10 @@ class SpaceInvadersDQN(arcade.Window):
     def on_key_press(self, key, modifiers):
         if key == arcade.key.R:
             self.reset()
+        #Print q_table
+        elif key == arcade.key.P:
+            for _tuple in self.q_table.keys():
+                print(str(_tuple), ":", self.q_table[_tuple])
         elif key == arcade.key.Q:
             self.close()
             self.plot_training_progress()
