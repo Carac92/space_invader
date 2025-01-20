@@ -1,0 +1,4 @@
+numpy~=2.2.1
+arcade~=2.6.17
+matplotlib~=3.10.0
+torch~=2.5.1
