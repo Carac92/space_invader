@@ -1,4 +1,3 @@
-
 import os
 import pickle
 import random
@@ -36,28 +35,39 @@ class SpaceInvadersDQN(arcade.Window):
         self.game_speed = FRAME_RATE
         arcade.set_background_color(arcade.color.BLACK)
         self.set_update_rate(self.game_speed)
+        self.optimizer = None
+
         self.player = None
         self.bullet_list = None
         self.enemy_list = None
         self.enemy_bullet_list = None
         self.asteroid_list = None
+
         self.epsilon = EPSILON
         self.episode = 0
         self.score = 0
         self.reset_required = False
         self.reward = 0
-        self.total_reward = 0  # Variable pour accumuler les récompenses
+        self.total_reward = 0
         self.last_action = Action.DO_NOTHING
         self.state = None
         self.batch_size = 64
         self.history = []
-        # DQN specific
-        self.input_size = 6  # State dimension (relative x,y for nearest enemy and bullet, player x, ammo)
+
+        self.input_size = 6  # State dimension
         self.output_size = len(Action)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.policy_net = DQN(self.input_size, self.output_size).to(self.device)
         self.target_net = DQN(self.input_size, self.output_size).to(self.device)
         self.target_net.load_state_dict(self.policy_net.state_dict())
+        self.gamma = 0.99
+        self.optimizer = optim.Adam(self.policy_net.parameters())
+
+        if os.path.exists("dqn_model.pkl"):
+            self.load_model()
+        else:
+            print("No pre-trained model found. Starting fresh.")
 
         self.optimizer = optim.Adam(self.policy_net.parameters())
         self.memory = deque(maxlen=10000)
@@ -100,7 +110,7 @@ class SpaceInvadersDQN(arcade.Window):
         self.episode += 1
         self.epsilon = max(EPSILON_MIN, self.epsilon * EPSILON_DECAY)
         self.history.append(self.total_reward)
-        self.save_q_table()
+        self.save_model()
 
     def reset(self):
         self.epsilon = EPSILON
@@ -224,31 +234,13 @@ class SpaceInvadersDQN(arcade.Window):
         return 0
 
     def choose_action(self):
-         # Filtrer les actions valides
-        if self.player.cooldown > 0:
-            valid_actions = [action for action in Action if action != Action.SHOOT]
-        else:
-            valid_actions = list(Action)
-
-        # Exploration : Choisir une action aléatoire
         if random.random() < self.epsilon:
-            chosen_action = random.choice(valid_actions)
-            return chosen_action
+            return random.choice(list(Action))
 
-        # Exploitation : Utiliser le réseau de neurones pour choisir l'action optimale
-        with torch.no_grad():
-            state_tensor = self.get_state()
-            q_values = self.policy_net(state_tensor).cpu().numpy()[0]
-        # Filtrer les valeurs Q pour ne garder que celles des actions valides
-        valid_q_values = [q_values[action.value] for action in valid_actions]
-        # Trouver l'action avec la valeur Q maximale
-        max_value = max(valid_q_values)
-        tolerance = 1e-6
-        max_actions = [action for action, q in zip(valid_actions, q_values) if abs(q - max_value) < tolerance]
-        # Randomiser si plusieurs actions ont la même valeur maximale
-        chosen_action = random.choice(max_actions)
-        print(f"Exploitation: Action choisie via DQN -> {chosen_action}, Valeur Q -> {max_value}")
-        return chosen_action
+        with torch.no_grad() :
+            state_tensor = torch.tensor(self.state, dtype=torch.float32).unsqueeze(0).to(self.device)
+            q_values = self.policy_net(state_tensor)
+            return torch.argmax(q_values).item()
 
     def perform_action(self, action):
         if action == Action.MOVE_LEFT:  # Utiliser Action.MOVE_LEFT au lieu de 0
@@ -264,7 +256,6 @@ class SpaceInvadersDQN(arcade.Window):
         if len(self.memory) < self.batch_size:
             return
 
-            # Échantillonner un batch de transitions
         transitions = random.sample(self.memory, self.batch_size)
         state_batch, action_batch, reward_batch, next_state_batch = zip(*transitions)
 
@@ -273,21 +264,13 @@ class SpaceInvadersDQN(arcade.Window):
         reward_batch = torch.tensor(reward_batch, dtype=torch.float, device=self.device)
         next_state_batch = torch.cat(next_state_batch)
 
-        # Q-values pour les actions prises
         q_values = self.policy_net(state_batch).gather(1, action_batch)
-
-        # Q-values cibles
         with torch.no_grad():
             max_next_q_values = self.target_net(next_state_batch).max(1)[0]
             target_q_values = reward_batch + (self.gamma * max_next_q_values)
 
-        # Perte
         loss = nn.SmoothL1Loss()(q_values, target_q_values.unsqueeze(1))
 
-        # Log de la perte
-        print(f"Perte actuelle : {loss.item()}")
-
-        # Optimisation
         self.optimizer.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_value_(self.policy_net.parameters(), 1)
@@ -422,24 +405,21 @@ class SpaceInvadersDQN(arcade.Window):
                 bullet.change_y = -BULLET_SPEED
                 self.enemy_bullet_list.append(bullet)
 
-    def save_q_table(self):
+    def save_model(self):
         torch.save({
-            'policy_net_state_dict': self.policy_net.state_dict(),
-            'target_net_state_dict': self.target_net.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
+            'policy_net': self.policy_net.state_dict(),
+            'target_net': self.target_net.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
             'epsilon': self.epsilon,
             'history': self.history,
-            'episode': self.episode,
-        }, 'dqn_model.pth')
+            'episode': self.episode
+        }, 'dqn_model.pkl')
 
-    def load_q_table(self):
-        if os.path.exists('dqn_model.pth'):
-            checkpoint = torch.load('dqn_model.pth')
-            self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
-            self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
-            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-            self.epsilon = checkpoint['epsilon']
-            self.history = checkpoint['history']
-            self.episode = checkpoint['episode']
-        else:
-            print("No saved model found. Starting from scratch.")
+    def load_model(self):
+        checkpoint = torch.load('dqn_model.pkl')
+        self.policy_net.load_state_dict(checkpoint['policy_net'])
+        self.target_net.load_state_dict(checkpoint['target_net'])
+        self.optimizer.load_state_dict(checkpoint['optimizer'])
+        self.epsilon = checkpoint['epsilon']
+        self.history = checkpoint['history']
+        self.episode = checkpoint['episode']

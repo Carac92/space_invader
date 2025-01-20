@@ -6,7 +6,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import arcade
-from orca.eventsynthesizer import activateActionOn
 
 from Entity.Bullet import Bullet
 from Entity.Ennemy import Enemy
